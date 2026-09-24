@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "embedfix",
+    "short": "Repost social links through proxies that embed properly.",
+    "description": "When someone posts a Twitter/X, Instagram, TikTok or Reddit link, replies with a proxy link that embeds properly in Discord and hides the original's broken embed. The proxy list is editable from Discord.",
+    "install_msg": "Loaded? It's on by default. See `[p]embedfix list` for the current proxies. Give the bot Manage Messages so it can hide the original embeds.",
+    "tags": ["embed", "twitter", "instagram", "tiktok", "reddit"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}

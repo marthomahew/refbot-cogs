@@ -9,25 +9,25 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard
-!load scoreboard
+!cog install refbot-cogs scoreboard embedfix
+!load scoreboard embedfix
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard
+!reload scoreboard embedfix
 ```
 
-Slash commands (optional): as bot owner, run `!slash enable scoreboard` then `!slash sync`.
+Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
 
 ## scoreboard
 
 One NFL scoreboard message that the bot keeps editing in place, using ESPN's public
 scoreboard data. It has two cards:
 
-- **Team card** (Vikings by default), in team colors with both logos. Before kickoff it
+- **Team card** (Vikings by default), in team colors with its logo. Before kickoff it
   shows records, TV, venue, betting line and weather. During and after the game it shows
   the score, clock, who has the ball and down & distance, the last play, scoring by
   quarter, stat leaders, and a recap headline when it's over.
@@ -49,3 +49,36 @@ otherwise. If ESPN is down, the last good scoreboard stays up.
 Quick setup: `!scoreboard channel #scores` then `!scoreboard start`.
 
 The bot needs View Channel, Send Messages and Embed Links in the scoreboard channel.
+
+## embedfix
+
+When someone posts a Twitter/X, Instagram, TikTok or Reddit link, the bot replies
+(without pinging them) with a proxy link that embeds properly, and hides the
+original message's embed so there aren't two previews. It's on as soon as it's loaded.
+
+Links are left alone when they're wrapped in `<...>`, inside `||spoilers||` or
+`code`, posted by bots, or in an ignored channel.
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `!embedfix toggle` | Admin | Turn link fixing on or off |
+| `!embedfix map <site> <proxy>` | Admin | Add a site, or swap a proxy that stopped working |
+| `!embedfix unmap <site>` | Admin | Stop fixing links for a site |
+| `!embedfix list` | Admin | Show proxies, ignored channels and status |
+| `!embedfix ignore #channel` | Admin | Leave links alone in a channel (and its threads) |
+| `!embedfix unignore #channel` | Admin | Fix links in that channel again |
+
+Starting proxies (checked September 2026):
+
+| Site | Proxy |
+| --- | --- |
+| twitter.com | fxtwitter.com |
+| x.com | fixupx.com |
+| instagram.com | hhinstagram.com |
+| tiktok.com | tnktok.com |
+| reddit.com | vxreddit.com |
+
+If a proxy stops working, swap it: e.g. `!embedfix map instagram.com kkinstagram.com`.
+
+The bot needs Send Messages, Embed Links and Read Message History to reply, and
+Manage Messages to hide the original embed (without it, it still replies).
