@@ -9,5 +9,5 @@
     "min_python_version": [3, 11, 0],
     "requirements": [],
     "type": "COG",
-    "end_user_data_statement": "This cog does not store any end user data."
+    "end_user_data_statement": "This cog stores the last 25 links each member shared through the embed fixer (per server) so `links` can list them. Red's data deletion removes them."
 }

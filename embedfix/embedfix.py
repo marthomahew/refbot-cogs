@@ -45,6 +45,9 @@ DEFAULT_MAP = {
 # Don't answer a message that's just a wall of links with a wall of links.
 MAX_LINKS = 5
 
+# How many shared links `!links` remembers per member, per server.
+HISTORY_SIZE = 25
+
 # Subdomains that are just "the same site" and should be dropped, so
 # www.instagram.com and m.twitter.com work like instagram.com and twitter.com.
 # Other subdomains are kept, e.g. vm.tiktok.com -> vm.tnktok.com.
@@ -183,6 +186,10 @@ class EmbedFix(commands.Cog):
             # "reply": leave the message, hide its preview, reply with the fixed links.
             mode="repost",
         )
+        # Links each member shared through the fixer, newest first, for `!links`.
+        # Webhook reposts can't be found with Discord's `from:` search, so we keep
+        # our own list. Each entry: {"links": [...], "jump": url, "channel_id": id, "time": unix}.
+        self.config.register_member(shared=[])
         self._warned: set[str] = set()  # one-time log warnings already sent
         self._webhooks: dict[int, discord.Webhook] = {}  # channel id -> our webhook there
         self._webhook_lock = asyncio.Lock()  # so two quick messages don't create two webhooks
@@ -201,9 +208,24 @@ class EmbedFix(commands.Cog):
         if self._session:
             await self._session.close()
 
-    async def red_delete_data_for_user(self, **kwargs) -> None:
-        # This cog stores no data about users, so there's nothing to delete.
-        return
+    async def red_delete_data_for_user(self, *, requester, user_id: int) -> None:
+        # The only user data is the `!links` history. Remove it in every server.
+        for guild_id, members in (await self.config.all_members()).items():
+            if user_id in members:
+                await self.config.member_from_ids(guild_id, user_id).clear()
+
+    async def _remember(self, message: discord.Message, links: list[str], posted_id: int) -> None:
+        """Add a shared link to the author's `!links` history."""
+        entry = {
+            "links": links,
+            # Built by hand: a webhook's reply object doesn't always know its server.
+            "jump": f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{posted_id}",
+            "channel_id": message.channel.id,
+            "time": int(message.created_at.timestamp()),
+        }
+        async with self.config.member(message.author).shared() as shared:
+            shared.insert(0, entry)
+            del shared[HISTORY_SIZE:]
 
     async def _get_map(self, guild: discord.Guild) -> dict[str, str]:
         return {domain: proxy for domain, proxy in await self.config.guild(guild).proxies()}
@@ -259,7 +281,7 @@ class EmbedFix(commands.Cog):
             return hook
 
     async def _try_repost(
-        self, message: discord.Message, domain_map: dict[str, str], expanded: dict[str, str]
+        self, message: discord.Message, domain_map: dict[str, str], expanded: dict[str, str], links: list[str]
     ) -> bool:
         """Delete the message and repost it as its author with fixed links.
 
@@ -348,7 +370,7 @@ class EmbedFix(commands.Cog):
         # message disappear.
         started = time.monotonic()
         try:
-            await webhook.send(wait=True, **send_kwargs)
+            posted = await webhook.send(wait=True, **send_kwargs)
         except discord.NotFound:
             self._webhooks.pop(parent.id, None)  # someone deleted our webhook; make a new one next time
             return False
@@ -367,6 +389,7 @@ class EmbedFix(commands.Cog):
         timing = f"repost confirmed by Discord in {sent_at - started:.1f}s, original deleted {time.monotonic() - sent_at:.1f}s after"
         self._last_timing[message.guild.id] = timing
         log.info("Reposted in #%s: %s", channel, timing)
+        await self._remember(message, links, posted.id)
         return True
 
     # ------------------------------------------------------------ listener
@@ -402,7 +425,7 @@ class EmbedFix(commands.Cog):
         expanded = await self._expand_share_links(message.content)
         links = find_links(message.content, domain_map, expanded)
 
-        if conf["mode"] == "repost" and await self._try_repost(message, domain_map, expanded):
+        if conf["mode"] == "repost" and await self._try_repost(message, domain_map, expanded, links):
             return
 
         # Reply mode (also the fallback when a repost isn't possible).
@@ -419,7 +442,7 @@ class EmbedFix(commands.Cog):
             return
 
         try:
-            await message.reply(
+            reply = await message.reply(
                 "\n".join(links),
                 mention_author=False,  # don't ping the person who posted
                 allowed_mentions=discord.AllowedMentions.none(),
@@ -427,6 +450,7 @@ class EmbedFix(commands.Cog):
         except discord.HTTPException as e:
             log.warning("Couldn't reply with fixed links in #%s: %r", channel, e)
             return
+        await self._remember(message, links, reply.id)
 
         # Hide the original's (broken or duplicate) embed. Needs Manage Messages;
         # without it we still posted the fixed link, so just carry on.
@@ -443,6 +467,38 @@ class EmbedFix(commands.Cog):
             )
 
     # ------------------------------------------------------------ commands
+
+    @commands.hybrid_command(name="links")
+    @commands.guild_only()
+    async def links(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """Show the links someone shared through the embed fixer, newest first.
+
+        Leave out the name to see your own.
+        """
+        member = member or ctx.author
+        shared = await self.config.member(member).shared()
+        if not shared:
+            await ctx.send(f"No links from {member.display_name} yet. (Only links shared since this was added count.)")
+            return
+
+        lines = []
+        for number, entry in enumerate(shared, start=1):
+            first = entry["links"][0].split("://", 1)[-1]  # drop https:// to save space
+            if len(first) > 45:
+                first = first[:44] + "…"
+            more = f" (+{len(entry['links']) - 1})" if len(entry["links"]) > 1 else ""
+            # The link opens the post in the channel, where the embed plays.
+            # <t:...:R> shows as "2 hours ago" in each viewer's own time.
+            lines.append(f"{number}. [{first}]({entry['jump']}){more} · <#{entry['channel_id']}> · <t:{entry['time']}:R>")
+
+        embed = discord.Embed(
+            title=f"Links shared by {member.display_name}",
+            description="\n".join(lines),
+            color=member.color if member.color.value else discord.Color.blurple(),
+        )
+        embed.set_thumbnail(url=member.display_avatar.replace(size=128).url)
+        embed.set_footer(text=f"Last {HISTORY_SIZE} links · click one to jump to it")
+        await ctx.send(embed=embed)
 
     @commands.hybrid_group(name="embedfix")
     @commands.guild_only()
