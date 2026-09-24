@@ -321,7 +321,10 @@ class EmbedFix(commands.Cog):
         send_kwargs = {
             "content": content,
             "username": message.author.display_name[:80],  # server nickname if they have one
-            "avatar_url": message.author.display_avatar.url,
+            # Ask for a small version: Discord fetches this image itself and
+            # falls back to its default logo if the file is too big (1024px animated
+            # avatars can be several MB).
+            "avatar_url": message.author.display_avatar.replace(size=256).url,
             # The original message already pinged anyone it mentioned; don't ping twice.
             "allowed_mentions": discord.AllowedMentions.none(),
         }
