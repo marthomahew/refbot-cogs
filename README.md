@@ -52,9 +52,17 @@ The bot needs View Channel, Send Messages and Embed Links in the scoreboard chan
 
 ## embedfix
 
-When someone posts a Twitter/X, Instagram, TikTok or Reddit link, the bot replies
-(without pinging them) with a proxy link that embeds properly, and hides the
-original message's embed so there aren't two previews. It's on as soon as it's loaded.
+When someone posts a Twitter/X, Instagram, TikTok or Reddit link, the bot swaps it
+for a proxy link that embeds properly. It's on as soon as it's loaded. Two modes:
+
+- **repost** (default): deletes the message and reposts it under the author's name
+  and avatar, with the same text and fixed links. Messages with attachments or
+  stickers, replies, and the first post of a thread use **reply** instead, since a
+  repost would lose something.
+- **reply**: keeps the message, hides its preview, and replies (without pinging)
+  with the fixed links.
+
+Links that already use a proxy (fxtwitter, etc.) are left alone.
 
 Links are left alone when they're wrapped in `<...>`, inside `||spoilers||` or
 `code`, posted by bots, or in an ignored channel.
@@ -62,6 +70,7 @@ Links are left alone when they're wrapped in `<...>`, inside `||spoilers||` or
 | Command | Who | What it does |
 | --- | --- | --- |
 | `!embedfix toggle` | Admin | Turn link fixing on or off |
+| `!embedfix mode <repost\|reply>` | Admin | Choose how fixed links are posted |
 | `!embedfix map <site> <proxy>` | Admin | Add a site, or swap a proxy that stopped working |
 | `!embedfix unmap <site>` | Admin | Stop fixing links for a site |
 | `!embedfix list` | Admin | Show proxies, ignored channels and status |
@@ -80,5 +89,6 @@ Starting proxies (checked September 2026):
 
 If a proxy stops working, swap it: e.g. `!embedfix map instagram.com kkinstagram.com`.
 
-The bot needs Send Messages, Embed Links and Read Message History to reply, and
-Manage Messages to hide the original embed (without it, it still replies).
+Permissions: **Manage Messages** and **Manage Webhooks** for repost mode. Reply mode
+needs Send Messages, Embed Links and Read Message History, plus Manage Messages to
+hide the original preview. If repost permissions are missing, it replies instead.

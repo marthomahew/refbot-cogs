@@ -12,9 +12,10 @@ because these proxy services come and go.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 import discord
@@ -48,6 +49,8 @@ ANGLE_RE = re.compile(r"<https?://[^\s>]+>", re.IGNORECASE)  # <link> = "no prev
 SPOILER_RE = re.compile(r"\|\|.*?\|\|", re.DOTALL)  # ||spoilers||
 CODE_RE = re.compile(r"```.*?```|`[^`]*`", re.DOTALL)  # `code`
 DOMAIN_RE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
+# Punctuation/markdown that often sits right after a link: "look (https://x.com/a/status/1)!"
+TRAILING = ".,!?;:)]}'\"*_~"
 
 
 def normalize_domain(text: str) -> Optional[str]:
@@ -88,12 +91,29 @@ def find_links(content: str, domain_map: dict[str, str]) -> list[str]:
         content = pattern.sub(" ", content)
     fixed: list[str] = []
     for match in URL_RE.finditer(content):
-        # Trim punctuation/markdown that often sits right after a link: "look (https://x.com/a/status/1)!"
-        url = match.group(0).rstrip(".,!?;:)]}'\"*_~")
+        url = match.group(0).rstrip(TRAILING)
         new = rewrite_link(url, domain_map)
         if new and new not in fixed:
             fixed.append(new)
     return fixed[:MAX_LINKS]
+
+
+def rewrite_content(content: str, domain_map: dict[str, str]) -> str:
+    """The whole message with fixable links swapped in place (used by repost mode).
+
+    Links in <...>, ||spoilers|| and `code` are left exactly as they were.
+    """
+    protected = [m.span() for pattern in (CODE_RE, SPOILER_RE, ANGLE_RE) for m in pattern.finditer(content)]
+
+    def fix(match: re.Match) -> str:
+        raw = match.group(0)
+        if any(start <= match.start() < end for start, end in protected):
+            return raw
+        url = raw.rstrip(TRAILING)
+        new = rewrite_link(url, domain_map)
+        return new + raw[len(url):] if new else raw  # keep any trailing punctuation
+
+    return URL_RE.sub(fix, content)
 
 
 class EmbedFix(commands.Cog):
@@ -109,8 +129,13 @@ class EmbedFix(commands.Cog):
             # default domain wouldn't stick. Lists are never merged.
             proxies=[[domain, proxy] for domain, proxy in DEFAULT_MAP.items()],
             ignored_channels=[],
+            # "repost": delete the message and repost it as the author with fixed links.
+            # "reply": leave the message, hide its preview, reply with the fixed links.
+            mode="repost",
         )
         self._warned: set[str] = set()  # one-time log warnings already sent
+        self._webhooks: dict[int, discord.Webhook] = {}  # channel id -> our webhook there
+        self._webhook_lock = asyncio.Lock()  # so two quick messages don't create two webhooks
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
         # This cog stores no data about users, so there's nothing to delete.
@@ -126,6 +151,91 @@ class EmbedFix(commands.Cog):
         if key not in self._warned:
             self._warned.add(key)
             log.warning(msg, *args)
+
+    # ------------------------------------------------------------ repost mode
+
+    async def _get_webhook(self, channel: discord.abc.GuildChannel) -> Optional[discord.Webhook]:
+        """Find (or make) this bot's webhook in a channel. Webhooks are what let a
+        message show someone else's name and avatar."""
+        async with self._webhook_lock:
+            if channel.id in self._webhooks:
+                return self._webhooks[channel.id]
+            try:
+                hooks = await channel.webhooks()
+                hook = next((h for h in hooks if h.user and h.user.id == self.bot.user.id and h.token), None)
+                if hook is None:
+                    hook = await channel.create_webhook(name="Refbot embedfix", reason="embedfix: repost fixed links")
+            except discord.HTTPException as e:
+                log.warning("Couldn't get a webhook in #%s: %r", channel, e)
+                return None
+            self._webhooks[channel.id] = hook
+            return hook
+
+    async def _try_repost(self, message: discord.Message, domain_map: dict[str, str]) -> bool:
+        """Delete the message and repost it as its author with fixed links.
+
+        Returns False (without touching anything) when a repost would lose
+        something or isn't possible; the caller then uses reply mode instead.
+        """
+        channel = message.channel
+        me = message.guild.me
+
+        # A webhook repost can't carry these over, so reply instead.
+        if message.attachments or message.stickers or message.reference or getattr(message, "poll", None):
+            return False
+
+        # Webhooks live on the channel; in a thread we use the parent's webhook.
+        if isinstance(channel, discord.Thread):
+            if message.id == channel.id:
+                return False  # opening post of a thread/forum post: deleting it deletes the thread
+            parent = channel.parent
+        else:
+            parent = channel
+        if not isinstance(parent, (discord.TextChannel, discord.ForumChannel)):
+            return False  # e.g. voice channel chat
+
+        if not (channel.permissions_for(me).manage_messages and parent.permissions_for(me).manage_webhooks):
+            self._warn_once(
+                f"repost-perms-{message.guild.id}",
+                "Repost mode needs Manage Messages and Manage Webhooks (guild %s); replying instead",
+                message.guild.id,
+            )
+            return False
+
+        content = rewrite_content(message.content, domain_map)
+        if content == message.content or len(content) > 2000:
+            return False
+
+        webhook = await self._get_webhook(parent)
+        if webhook is None:
+            return False
+
+        send_kwargs = {
+            "content": content,
+            "username": message.author.display_name[:80],  # server nickname if they have one
+            "avatar_url": message.author.display_avatar.url,
+            # The original message already pinged anyone it mentioned; don't ping twice.
+            "allowed_mentions": discord.AllowedMentions.none(),
+        }
+        if isinstance(channel, discord.Thread):
+            send_kwargs["thread"] = channel
+
+        # Post the new copy first, and only delete the original once that worked,
+        # so a failure never makes someone's message disappear.
+        try:
+            await webhook.send(**send_kwargs)
+        except discord.NotFound:
+            self._webhooks.pop(parent.id, None)  # someone deleted our webhook; make a new one next time
+            return False
+        except discord.HTTPException as e:
+            log.warning("Webhook repost failed in #%s: %r", channel, e)
+            return False
+
+        try:
+            await message.delete()
+        except discord.HTTPException as e:
+            log.warning("Reposted but couldn't delete the original %s: %r", message.jump_url, e)
+        return True
 
     # ------------------------------------------------------------ listener
 
@@ -155,6 +265,10 @@ class EmbedFix(commands.Cog):
         if not links:
             return
 
+        if conf["mode"] == "repost" and await self._try_repost(message, domain_map):
+            return
+
+        # Reply mode (also the fallback when a repost isn't possible).
         perms = channel.permissions_for(message.guild.me)
         can_send = perms.send_messages_in_threads if isinstance(channel, discord.Thread) else perms.send_messages
         # Replying to a message also needs Read Message History.
@@ -207,6 +321,22 @@ class EmbedFix(commands.Cog):
         await conf.enabled.set(enabled)
         await ctx.send(f"Embed fixing is now **{'on' if enabled else 'off'}**.")
 
+    @embedfix.command(name="mode")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def ef_mode(self, ctx: commands.Context, mode: Literal["repost", "reply"]):
+        """Choose how fixed links are posted: `repost` or `reply`.
+
+        repost: delete the message and repost it under the author's name with fixed links.
+        reply: keep the message, hide its preview, and reply with the fixed links.
+        Messages with attachments, replies, or stickers always use reply.
+        """
+        await self.config.guild(ctx.guild).mode.set(mode)
+        if mode == "repost":
+            text = "Messages with broken links will be reposted under the author's name with fixed links."
+        else:
+            text = "The bot will reply with fixed links and hide the original preview."
+        await ctx.send(f"Mode set to **{mode}**. {text}")
+
     @embedfix.command(name="map")
     @commands.admin_or_permissions(manage_guild=True)
     async def ef_map(self, ctx: commands.Context, domain: str, proxy: str):
@@ -248,7 +378,12 @@ class EmbedFix(commands.Cog):
         conf = await self.config.guild(ctx.guild).all()
         domain_map = await self._get_map(ctx.guild)
 
-        lines = [f"**Status:** {'on' if conf['enabled'] else 'off'}", "", "**Proxies:**"]
+        lines = [
+            f"**Status:** {'on' if conf['enabled'] else 'off'}",
+            f"**Mode:** {conf['mode']}",
+            "",
+            "**Proxies:**",
+        ]
         if domain_map:
             lines += [f"`{d}` → `{p}`" for d, p in sorted(domain_map.items())]
         else:
@@ -258,8 +393,11 @@ class EmbedFix(commands.Cog):
         ignored_text = ", ".join(c.mention for c in ignored if c) or "none"
         lines += ["", f"**Ignored channels:** {ignored_text}"]
 
-        if not ctx.guild.me.guild_permissions.manage_messages:
-            lines += ["", "⚠️ I don't have **Manage Messages**, so original embeds won't be hidden."]
+        perms = ctx.guild.me.guild_permissions
+        if not perms.manage_messages:
+            lines += ["", "⚠️ I don't have **Manage Messages**, so I can't hide or repost messages."]
+        if conf["mode"] == "repost" and not perms.manage_webhooks:
+            lines += ["", "⚠️ Repost mode needs **Manage Webhooks**; until then I'll reply instead."]
         await ctx.send("\n".join(lines))
 
     @embedfix.command(name="ignore")
