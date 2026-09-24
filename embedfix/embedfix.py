@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import Literal, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -136,6 +137,7 @@ class EmbedFix(commands.Cog):
         self._warned: set[str] = set()  # one-time log warnings already sent
         self._webhooks: dict[int, discord.Webhook] = {}  # channel id -> our webhook there
         self._webhook_lock = asyncio.Lock()  # so two quick messages don't create two webhooks
+        self._last_timing: dict[int, str] = {}  # guild id -> how long the last repost took (shown in `list`)
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
         # This cog stores no data about users, so there's nothing to delete.
@@ -220,10 +222,12 @@ class EmbedFix(commands.Cog):
         if isinstance(channel, discord.Thread):
             send_kwargs["thread"] = channel
 
-        # Post the new copy first, and only delete the original once that worked,
-        # so a failure never makes someone's message disappear.
+        # Post the new copy first, and only delete the original once Discord has
+        # confirmed it exists (wait=True), so a failure never makes someone's
+        # message disappear.
+        started = time.monotonic()
         try:
-            await webhook.send(**send_kwargs)
+            await webhook.send(wait=True, **send_kwargs)
         except discord.NotFound:
             self._webhooks.pop(parent.id, None)  # someone deleted our webhook; make a new one next time
             return False
@@ -231,10 +235,17 @@ class EmbedFix(commands.Cog):
             log.warning("Webhook repost failed in #%s: %r", channel, e)
             return False
 
+        sent_at = time.monotonic()
+
         try:
             await message.delete()
         except discord.HTTPException as e:
             log.warning("Reposted but couldn't delete the original %s: %r", message.jump_url, e)
+
+        # Timing, to tell bot-side slowness apart from Discord being slow to show messages.
+        timing = f"repost confirmed by Discord in {sent_at - started:.1f}s, original deleted {time.monotonic() - sent_at:.1f}s after"
+        self._last_timing[message.guild.id] = timing
+        log.info("Reposted in #%s: %s", channel, timing)
         return True
 
     # ------------------------------------------------------------ listener
@@ -396,6 +407,8 @@ class EmbedFix(commands.Cog):
         perms = ctx.guild.me.guild_permissions
         if not perms.manage_messages:
             lines += ["", "⚠️ I don't have **Manage Messages**, so I can't hide or repost messages."]
+        if timing := self._last_timing.get(ctx.guild.id):
+            lines += ["", f"**Last repost:** {timing}"]
         if conf["mode"] == "repost" and not perms.manage_webhooks:
             lines += ["", "⚠️ Repost mode needs **Manage Webhooks**; until then I'll reply instead."]
         await ctx.send("\n".join(lines))
