@@ -335,8 +335,8 @@ class EmbedFix(commands.Cog):
                 content = f"-# ↪ replying to {reference.jump_url}\n{content}"
         # Webhook posts don't count as the author's own messages, so `from: @them`
         # search can't find them and clicking the name doesn't open their profile.
-        # A small mention fixes both (search `mentions: @them`). It doesn't ping:
-        # allowed_mentions below is none.
+        # A small mention fixes both (search `mentions: @them`). It's a real mention
+        # (Discord only indexes those for search) but sent silently, see below.
         content = f"{content}\n-# shared by {message.author.mention}"
         if len(content) > 2000:
             return False
@@ -352,8 +352,14 @@ class EmbedFix(commands.Cog):
             # falls back to its default logo if the file is too big (1024px animated
             # avatars can be several MB).
             "avatar_url": message.author.display_avatar.replace(size=256).url,
-            # The original message already pinged anyone it mentioned; don't ping twice.
-            "allowed_mentions": discord.AllowedMentions.none(),
+            # Only the "shared by" author counts as mentioned, so it shows up in
+            # `mentions:` search. Anyone else in the post was already pinged by the
+            # original message, so they aren't mentioned again.
+            "allowed_mentions": discord.AllowedMentions(
+                everyone=False, roles=False, users=[message.author], replied_user=False
+            ),
+            # Like typing @silent: no push/desktop notification for that mention.
+            "silent": True,
         }
         if isinstance(channel, discord.Thread):
             send_kwargs["thread"] = channel

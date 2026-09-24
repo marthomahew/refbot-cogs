@@ -57,7 +57,8 @@ for a proxy link that embeds properly. It's on as soon as it's loaded. Two modes
 
 - **repost** (default): deletes the message and reposts it under the author's name
   and avatar, with the same text, attachments and fixed links. A small
-  "shared by @name" line links to their profile, without pinging. Replies get a
+  "shared by @name" line links to their profile and makes it findable with
+  `mentions: @name` search (sent silently, so it doesn't notify). Replies get a
   small "↪ replying to" line. Stickers, voice messages, forwards, files over the upload
   limit, and the first post of a thread use **reply** instead, since a repost would
   lose something.
