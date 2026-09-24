@@ -2,9 +2,14 @@
 
 Discord's own previews for Twitter/X, Instagram, TikTok and Reddit are often
 missing or broken. Proxy sites (fxtwitter, hhinstagram, ...) serve the same post
-with preview tags Discord understands. When someone posts one of these links,
-we reply with the proxy version and hide the original message's embed so the
-channel doesn't show two previews.
+with preview tags Discord understands. When someone posts one of these links we
+either repost their message under their name with fixed links (repost mode) or
+reply with the fixed links and hide the original preview (reply mode).
+
+Privacy: share links often carry a code that identifies the person who shared
+them (?igsh=..., ?s=46&t=..., vm.tiktok.com/XYZ, reddit.com/r/x/s/XYZ). We drop
+query strings, and follow "share" links to the real post address so the code
+isn't passed along. In repost mode the original message is deleted too.
 
 The domain -> proxy map is stored per server and editable with `!embedfix map`,
 because these proxy services come and go.
@@ -19,6 +24,7 @@ import time
 from typing import Literal, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+import aiohttp
 import discord
 from redbot.core import Config, commands
 from redbot.core.bot import Red
@@ -62,14 +68,54 @@ def normalize_domain(text: str) -> Optional[str]:
     return text if DOMAIN_RE.fullmatch(text) else None
 
 
+def site_host(host: Optional[str]) -> str:
+    """"www.Instagram.com" -> "instagram.com" (drops the DROP_PREFIXES subdomains)."""
+    host = (host or "").lower()
+    for prefix in DROP_PREFIXES:
+        if host.startswith(prefix):
+            return host[len(prefix):]
+    return host
+
+
+# "Share" links whose code points back to the person who shared them. They
+# redirect to the real post, so we follow them first (see EmbedFix._resolve).
+def is_share_link(url: str) -> bool:
+    parts = urlsplit(url)
+    host, path = site_host(parts.hostname), parts.path
+    return (
+        host in ("vm.tiktok.com", "vt.tiktok.com")
+        or (host == "tiktok.com" and path.startswith("/t/"))
+        or (host == "instagram.com" and path.startswith("/share/"))
+        or (host == "reddit.com" and re.match(r"^/r/[^/]+/s/", path) is not None)
+    )
+
+
+# What a real post address looks like on each site. A share link that
+# redirects somewhere else (homepage, login page, subreddit) didn't work.
+POST_PATH_RE = {
+    "tiktok.com": re.compile(r"/(video|photo)/\d+"),
+    "instagram.com": re.compile(r"^/(p|reel|reels|tv)/[\w-]+"),
+    "reddit.com": re.compile(r"/comments/\w+"),
+}
+
+
+def is_post_address(url: str) -> bool:
+    parts = urlsplit(url)
+    pattern = POST_PATH_RE.get(site_host(parts.hostname))
+    return bool(pattern and pattern.search(parts.path)) and not is_share_link(url)
+
+
+def unprotected_urls(content: str) -> list[str]:
+    """Links in a message, skipping ones in <...>, ||spoilers|| and `code`."""
+    for pattern in (CODE_RE, SPOILER_RE, ANGLE_RE):
+        content = pattern.sub(" ", content)
+    return [m.group(0).rstrip(TRAILING) for m in URL_RE.finditer(content)]
+
+
 def rewrite_link(url: str, domain_map: dict[str, str]) -> Optional[str]:
     """Return the proxy version of `url`, or None if it isn't a link we fix."""
     parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
-    for prefix in DROP_PREFIXES:
-        if host.startswith(prefix):
-            host = host[len(prefix):]
-            break
+    host = site_host(parts.hostname)
 
     for domain, proxy in domain_map.items():
         if host == domain:
@@ -86,24 +132,27 @@ def rewrite_link(url: str, domain_map: dict[str, str]) -> Optional[str]:
     return None
 
 
-def find_links(content: str, domain_map: dict[str, str]) -> list[str]:
-    """All fixable links in a message, already rewritten, without duplicates."""
-    for pattern in (CODE_RE, SPOILER_RE, ANGLE_RE):
-        content = pattern.sub(" ", content)
+def find_links(content: str, domain_map: dict[str, str], expanded: Optional[dict[str, str]] = None) -> list[str]:
+    """All fixable links in a message, already rewritten, without duplicates.
+
+    `expanded` maps share links to the real post address they lead to.
+    """
+    expanded = expanded or {}
     fixed: list[str] = []
-    for match in URL_RE.finditer(content):
-        url = match.group(0).rstrip(TRAILING)
-        new = rewrite_link(url, domain_map)
+    for url in unprotected_urls(content):
+        new = rewrite_link(expanded.get(url, url), domain_map)
         if new and new not in fixed:
             fixed.append(new)
     return fixed[:MAX_LINKS]
 
 
-def rewrite_content(content: str, domain_map: dict[str, str]) -> str:
+def rewrite_content(content: str, domain_map: dict[str, str], expanded: Optional[dict[str, str]] = None) -> str:
     """The whole message with fixable links swapped in place (used by repost mode).
 
     Links in <...>, ||spoilers|| and `code` are left exactly as they were.
+    `expanded` maps share links to the real post address they lead to.
     """
+    expanded = expanded or {}
     protected = [m.span() for pattern in (CODE_RE, SPOILER_RE, ANGLE_RE) for m in pattern.finditer(content)]
 
     def fix(match: re.Match) -> str:
@@ -111,7 +160,7 @@ def rewrite_content(content: str, domain_map: dict[str, str]) -> str:
         if any(start <= match.start() < end for start, end in protected):
             return raw
         url = raw.rstrip(TRAILING)
-        new = rewrite_link(url, domain_map)
+        new = rewrite_link(expanded.get(url, url), domain_map)
         return new + raw[len(url):] if new else raw  # keep any trailing punctuation
 
     return URL_RE.sub(fix, content)
@@ -138,6 +187,19 @@ class EmbedFix(commands.Cog):
         self._webhooks: dict[int, discord.Webhook] = {}  # channel id -> our webhook there
         self._webhook_lock = asyncio.Lock()  # so two quick messages don't create two webhooks
         self._last_timing: dict[int, str] = {}  # guild id -> how long the last repost took (shown in `list`)
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def cog_load(self) -> None:
+        self._session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=6),
+            # Look like a normal browser; some sites send bots to a login page.
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 "
+                                   "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"},
+        )
+
+    async def cog_unload(self) -> None:
+        if self._session:
+            await self._session.close()
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
         # This cog stores no data about users, so there's nothing to delete.
@@ -153,6 +215,29 @@ class EmbedFix(commands.Cog):
         if key not in self._warned:
             self._warned.add(key)
             log.warning(msg, *args)
+
+    # ------------------------------------------------------------ share links
+
+    async def _resolve(self, url: str) -> Optional[str]:
+        """Follow a share link to the real post address. None if that didn't work."""
+        try:
+            async with self._session.get(url, allow_redirects=True, max_redirects=5) as resp:
+                final = str(resp.url)  # where the redirects ended up; we don't need the page itself
+        except Exception as e:  # network errors, timeouts, too many redirects...
+            log.debug("Couldn't resolve share link %s: %r", url, e)
+            return None
+        if not is_post_address(final):
+            log.debug("Share link %s led to %s, which isn't a post", url, final)
+            return None
+        return final
+
+    async def _expand_share_links(self, content: str) -> dict[str, str]:
+        """{share link: real post address} for every share link we could resolve."""
+        share_links = list(dict.fromkeys(u for u in unprotected_urls(content) if is_share_link(u)))[:MAX_LINKS]
+        if not share_links:
+            return {}
+        results = await asyncio.gather(*(self._resolve(u) for u in share_links))
+        return {link: real for link, real in zip(share_links, results) if real}
 
     # ------------------------------------------------------------ repost mode
 
@@ -173,7 +258,9 @@ class EmbedFix(commands.Cog):
             self._webhooks[channel.id] = hook
             return hook
 
-    async def _try_repost(self, message: discord.Message, domain_map: dict[str, str]) -> bool:
+    async def _try_repost(
+        self, message: discord.Message, domain_map: dict[str, str], expanded: dict[str, str]
+    ) -> bool:
         """Delete the message and repost it as its author with fixed links.
 
         Returns False (without touching anything) when a repost would lose
@@ -183,8 +270,16 @@ class EmbedFix(commands.Cog):
         me = message.guild.me
 
         # A webhook repost can't carry these over, so reply instead.
-        if message.attachments or message.stickers or message.reference or getattr(message, "poll", None):
+        if message.stickers or getattr(message, "poll", None):
             return False
+        if any(a.is_voice_message() for a in message.attachments):
+            return False
+        # Attachments get re-uploaded, so they must fit this server's upload limit.
+        if sum(a.size for a in message.attachments) > message.guild.filesize_limit:
+            return False
+        reference = message.reference
+        if reference and reference.type is not discord.MessageReferenceType.reply:
+            return False  # a forwarded message, not a reply
 
         # Webhooks live on the channel; in a thread we use the parent's webhook.
         if isinstance(channel, discord.Thread):
@@ -204,8 +299,19 @@ class EmbedFix(commands.Cog):
             )
             return False
 
-        content = rewrite_content(message.content, domain_map)
-        if content == message.content or len(content) > 2000:
+        content = rewrite_content(message.content, domain_map, expanded)
+        if content == message.content:
+            return False
+
+        # Webhooks can't make a real reply, so replies get a small line on top
+        # pointing at the message they answered.
+        if reference:
+            target = reference.resolved
+            if isinstance(target, discord.Message):
+                content = f"-# ↪ replying to {target.author.mention} {target.jump_url}\n{content}"
+            else:
+                content = f"-# ↪ replying to {reference.jump_url}\n{content}"
+        if len(content) > 2000:
             return False
 
         webhook = await self._get_webhook(parent)
@@ -221,6 +327,13 @@ class EmbedFix(commands.Cog):
         }
         if isinstance(channel, discord.Thread):
             send_kwargs["thread"] = channel
+        if message.attachments:
+            try:
+                # to_file keeps each file's name, alt text and spoiler setting.
+                send_kwargs["files"] = [await a.to_file(spoiler=a.is_spoiler()) for a in message.attachments]
+            except discord.HTTPException as e:
+                log.warning("Couldn't download attachments to repost: %r", e)
+                return False
 
         # Post the new copy first, and only delete the original once Discord has
         # confirmed it exists (wait=True), so a failure never makes someone's
@@ -276,7 +389,12 @@ class EmbedFix(commands.Cog):
         if not links:
             return
 
-        if conf["mode"] == "repost" and await self._try_repost(message, domain_map):
+        # Follow share links (vm.tiktok.com/..., instagram.com/share/...) to the
+        # real post, so the sharer's code isn't passed along.
+        expanded = await self._expand_share_links(message.content)
+        links = find_links(message.content, domain_map, expanded)
+
+        if conf["mode"] == "repost" and await self._try_repost(message, domain_map, expanded):
             return
 
         # Reply mode (also the fallback when a repost isn't possible).

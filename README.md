@@ -56,13 +56,21 @@ When someone posts a Twitter/X, Instagram, TikTok or Reddit link, the bot swaps 
 for a proxy link that embeds properly. It's on as soon as it's loaded. Two modes:
 
 - **repost** (default): deletes the message and reposts it under the author's name
-  and avatar, with the same text and fixed links. Messages with attachments or
-  stickers, replies, and the first post of a thread use **reply** instead, since a
-  repost would lose something.
+  and avatar, with the same text, attachments and fixed links. Replies get a small
+  "↪ replying to" line. Stickers, voice messages, forwards, files over the upload
+  limit, and the first post of a thread use **reply** instead, since a repost would
+  lose something.
 - **reply**: keeps the message, hides its preview, and replies (without pinging)
   with the fixed links.
 
 Links that already use a proxy (fxtwitter, etc.) are left alone.
+
+**Privacy:** share links often contain a code that identifies whoever shared them.
+The bot strips tracking (`?igsh=`, `?s=46&t=`, TikTok's `?_t=`), and follows share
+links (`vm.tiktok.com/…`, `tiktok.com/t/…`, `instagram.com/share/…`, Reddit `/s/…`)
+to the real post so the code isn't passed on. In repost mode the original message
+is deleted. If a share link can't be followed (e.g. a site blocks the bot), it's
+posted as-is. Reply mode leaves the original message up.
 
 Links are left alone when they're wrapped in `<...>`, inside `||spoilers||` or
 `code`, posted by bots, or in an ignored channel.
