@@ -153,9 +153,13 @@ class EmoteSteal(commands.Cog):
         `[p]steal :pepelaugh:`. Give a new name when adding a single item:
         `[p]steal newname`.
         """
-        me = ctx.guild.me
-        if not (me.guild_permissions.manage_expressions or me.guild_permissions.create_expressions):
-            await ctx.send("I need the **Manage Expressions** permission to add emoji and stickers.")
+        # Only Manage Expressions counts. (Discord gives @everyone "Create
+        # Expressions" by default, but that isn't enough for a bot's uploads.)
+        if not ctx.guild.me.guild_permissions.manage_expressions:
+            await ctx.send(
+                "I need the **Manage Expressions** permission to add emoji and stickers. "
+                "Server Settings → Roles → my role → turn on Manage Expressions."
+            )
             return
 
         # Where to look: the replied-to message, otherwise this command message itself.
