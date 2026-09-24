@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "scoreboard",
+    "short": "A single live-updating NFL scoreboard embed.",
+    "description": "Posts one NFL scoreboard embed in a channel and keeps editing it in place with scores from ESPN. Your team's game is pinned to the top.",
+    "install_msg": "Loaded? Run `[p]scoreboard channel #channel` then `[p]scoreboard start`.",
+    "tags": ["nfl", "football", "scores", "espn"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}
