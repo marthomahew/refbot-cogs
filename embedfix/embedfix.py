@@ -192,9 +192,9 @@ class EmbedFix(commands.Cog):
     async def cog_load(self) -> None:
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=6),
-            # Look like a normal browser; some sites send bots to a login page.
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 "
-                                   "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"},
+            # Identify honestly as a bot. This matters: Instagram only answers share
+            # links with a real redirect for non-browsers (browsers get a JavaScript page).
+            headers={"User-Agent": "Refbot/1.0 (Discord bot; link preview fixer)"},
         )
 
     async def cog_unload(self) -> None:
