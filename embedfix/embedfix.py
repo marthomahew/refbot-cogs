@@ -48,6 +48,12 @@ MAX_LINKS = 5
 # How many shared links `!links` remembers per member, per server.
 HISTORY_SIZE = 25
 
+# Reacting with this on your own repost deletes it (webhook posts belong to the
+# bot, so members can't delete them the normal way).
+DELETE_EMOJI = "\U0001F5D1"  # 🗑️ wastebasket
+# The last line of every repost; tells us whose post it is.
+SHARED_BY_RE = re.compile(r"-# shared by <@!?(\d+)>\s*$")
+
 # Subdomains that are just "the same site" and should be dropped, so
 # www.instagram.com and m.twitter.com work like instagram.com and twitter.com.
 # Other subdomains are kept, e.g. vm.tiktok.com -> vm.tnktok.com.
@@ -263,7 +269,7 @@ class EmbedFix(commands.Cog):
 
     # ------------------------------------------------------------ repost mode
 
-    async def _get_webhook(self, channel: discord.abc.GuildChannel) -> Optional[discord.Webhook]:
+    async def _get_webhook(self, channel: discord.abc.GuildChannel, create: bool = True) -> Optional[discord.Webhook]:
         """Find (or make) this bot's webhook in a channel. Webhooks are what let a
         message show someone else's name and avatar."""
         async with self._webhook_lock:
@@ -272,6 +278,8 @@ class EmbedFix(commands.Cog):
             try:
                 hooks = await channel.webhooks()
                 hook = next((h for h in hooks if h.user and h.user.id == self.bot.user.id and h.token), None)
+                if hook is None and not create:
+                    return None
                 if hook is None:
                     hook = await channel.create_webhook(name="Refbot embedfix", reason="embedfix: repost fixed links")
             except discord.HTTPException as e:
@@ -397,6 +405,55 @@ class EmbedFix(commands.Cog):
         log.info("Reposted in #%s: %s", channel, timing)
         await self._remember(message, links, posted.id)
         return True
+
+    # ------------------------------------------------------------ delete by reaction
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """🗑️ on your own repost deletes it."""
+        # "raw" so it also works on messages from before the bot last restarted.
+        if payload.guild_id is None or payload.emoji.id is not None:
+            return
+        if (payload.emoji.name or "").replace("\ufe0f", "") != DELETE_EMOJI:
+            return
+        if payload.user_id == self.bot.user.id:
+            return
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is None or await self.bot.cog_disabled_in_guild(self, guild):
+            return
+        channel = guild.get_channel_or_thread(payload.channel_id)
+        if channel is None:
+            return
+
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            return
+        owner = SHARED_BY_RE.search(message.content)
+        if message.webhook_id is None or owner is None:
+            return  # not one of our reposts
+        # Make sure it's our webhook, not some other bot's that happens to match.
+        parent = channel.parent if isinstance(channel, discord.Thread) else channel
+        hook = await self._get_webhook(parent, create=False)
+        if hook is None or hook.id != message.webhook_id:
+            return
+
+        if int(owner.group(1)) != payload.user_id:
+            # Someone else's post: take the 🗑️ back off so it doesn't look like a vote.
+            try:
+                await message.remove_reaction(payload.emoji, discord.Object(payload.user_id))
+            except discord.HTTPException:
+                pass
+            return
+
+        try:
+            await message.delete()
+        except discord.HTTPException as e:
+            log.warning("Couldn't delete repost %s for its owner: %r", message.jump_url, e)
+            return
+        # Drop it from their `!links` history too.
+        async with self.config.member_from_ids(guild.id, payload.user_id).shared() as shared:
+            shared[:] = [e for e in shared if not e["jump"].endswith(f"/{message.id}")]
 
     # ------------------------------------------------------------ listener
 

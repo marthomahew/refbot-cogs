@@ -67,6 +67,10 @@ for a proxy link that embeds properly. It's on as soon as it's loaded. Two modes
 
 Links that already use a proxy (fxtwitter, etc.) are left alone.
 
+**Deleting a repost:** react with 🗑️ on your own repost and the bot deletes it
+(and drops it from your `!links`). Anyone else's 🗑️ is removed. Mods can delete
+reposts normally.
+
 **Privacy:** share links often contain a code that identifies whoever shared them.
 The bot strips tracking (`?igsh=`, `?s=46&t=`, TikTok's `?_t=`), and follows share
 links (`vm.tiktok.com/…`, `tiktok.com/t/…`, `instagram.com/share/…`, Reddit `/s/…`)
