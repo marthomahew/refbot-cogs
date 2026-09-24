@@ -407,15 +407,15 @@ def build_team_embed(game: Optional[Game], team_abbr: str, week_label: str) -> d
         )
 
     ours = game.home if game.home.abbr == team_abbr else game.away
-    theirs = game.away if ours is game.home else game.home
 
     embed = discord.Embed(
         title=f"{game.away.short_name} {_sep(game)} {game.home.short_name}",
         color=_team_color(ours),
     )
-    embed.set_author(name=f"⭐ {ours.name} · {week_label}", icon_url=ours.logo or None)
-    if theirs.logo:
-        embed.set_thumbnail(url=theirs.logo)
+    # Discord only has one big image slot (top-right), so it goes to our team.
+    embed.set_author(name=f"⭐ {ours.name} · {week_label}")
+    if ours.logo:
+        embed.set_thumbnail(url=ours.logo)
 
     # Big headline line: records before kickoff, the score after.
     def rec(t: Team) -> str:
