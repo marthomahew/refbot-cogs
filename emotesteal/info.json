@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "emotesteal",
+    "short": "Add emoji and stickers from other servers to this one.",
+    "description": "Reply to a message with `[p]steal` and the bot adds its custom emoji and stickers to this server. For admins and mods.",
+    "install_msg": "Loaded? Give the bot the Manage Expressions permission, then reply to a message with `[p]steal`.",
+    "tags": ["emoji", "stickers", "utility"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}

@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix
-!load scoreboard embedfix
+!cog install refbot-cogs scoreboard embedfix emotesteal
+!load scoreboard embedfix emotesteal
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix
+!reload scoreboard embedfix emotesteal
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -101,3 +101,19 @@ If a proxy stops working, swap it: e.g. `!embedfix map instagram.com kkinstagram
 Permissions: **Manage Messages** and **Manage Webhooks** for repost mode. Reply mode
 needs Send Messages, Embed Links and Read Message History, plus Manage Messages to
 hide the original preview. If repost permissions are missing, it replies instead.
+
+## emotesteal
+
+Copy custom emoji and stickers from other servers into this one. Handy when a
+Nitro user posts something good.
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `!steal` (as a reply) | Mod | Add every custom emoji and sticker in the replied-to message |
+| `!steal newname` (as a reply) | Mod | Same, but give a single emoji/sticker a new name |
+| `!steal :emoji:` | Mod | Add an emoji pasted straight into the command |
+
+It reports how many slots are left, skips ones already in the server, and adds up
+to 10 at a time. Discord's own built-in stickers can't be copied. The bot needs
+the **Manage Expressions** permission. `!steal` is a text command only (not a
+slash command), because it works by replying to a message.
