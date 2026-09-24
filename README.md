@@ -56,8 +56,9 @@ When someone posts a Twitter/X, Instagram, TikTok or Reddit link, the bot swaps 
 for a proxy link that embeds properly. It's on as soon as it's loaded. Two modes:
 
 - **repost** (default): deletes the message and reposts it under the author's name
-  and avatar, with the same text, attachments and fixed links. Replies get a small
-  "↪ replying to" line. Stickers, voice messages, forwards, files over the upload
+  and avatar, with the same text, attachments and fixed links. A small
+  "shared by @name" line keeps it findable (search `mentions: @name`) and links to
+  their profile, without pinging. Replies get a small "↪ replying to" line. Stickers, voice messages, forwards, files over the upload
   limit, and the first post of a thread use **reply** instead, since a repost would
   lose something.
 - **reply**: keeps the message, hides its preview, and replies (without pinging)

@@ -311,6 +311,11 @@ class EmbedFix(commands.Cog):
                 content = f"-# ↪ replying to {target.author.mention} {target.jump_url}\n{content}"
             else:
                 content = f"-# ↪ replying to {reference.jump_url}\n{content}"
+        # Webhook posts don't count as the author's own messages, so `from: @them`
+        # search can't find them and clicking the name doesn't open their profile.
+        # A small mention fixes both (search `mentions: @them`). It doesn't ping:
+        # allowed_mentions below is none.
+        content = f"{content}\n-# shared by {message.author.mention}"
         if len(content) > 2000:
             return False
 
