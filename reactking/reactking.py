@@ -111,6 +111,8 @@ class ReactKing(commands.Cog):
         self.config.register_guild(
             awards_channel=None,
             mod_channel=None,  # private channel for full results (staff included)
+            overall=False,  # also crown an overall "Emoji King" (all award emotes combined)
+            overall_role_id=None,
             # [{"emoji": "<:kek:123>" or "😂", "role_id": int or None}, ...]
             awards=[],
             day=0,  # 0 = Monday
@@ -204,18 +206,22 @@ class ReactKing(commands.Cog):
     def _ranking_lines(
         tally: Tally, target: Target, top: int, exclude: Collection[int] = (), staff: Collection[int] = ()
     ) -> list[str]:
-        """Ranked lines. `exclude` drops members entirely; `staff` just marks them 🛡️."""
+        """Ranked lines. `exclude` drops members entirely; `staff` just marks them 🛡️.
+
+        With target "total" (the overall award) it shows totals without message counts.
+        """
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         lines = []
         rank, previous = 0, None
         for position, (member_id, count) in enumerate(tally.ranking(top, exclude), start=1):
             if count != previous:  # ties share a rank (and medal): 1, 1, 3
                 rank, previous = position, count
-            msgs = tally.messages[member_id]
-            lines.append(
-                f"{medals.get(rank, f'{rank}.')} <@{member_id}>{' 🛡️' if member_id in staff else ''} "
-                f"— **{count}** {target} ({msgs} message{'s' if msgs != 1 else ''})"
-            )
+            who = f"{medals.get(rank, f'{rank}.')} <@{member_id}>{' 🛡️' if member_id in staff else ''}"
+            if target == "total":
+                lines.append(f"{who} — **{count}** reactions")
+            else:
+                msgs = tally.messages[member_id]
+                lines.append(f"{who} — **{count}** {target} ({msgs} message{'s' if msgs != 1 else ''})")
         return lines
 
     # ------------------------------------------------------------ on-demand leaderboard
@@ -295,7 +301,7 @@ class ReactKing(commands.Cog):
                     if datetime.now(timezone.utc) - slot > LATE_GRACE:
                         log.info("Skipping awards for %s in guild %s (bot was offline too long)", slot, guild_id)
                         continue
-                    await self._post_awards(guild, conf, give_roles=True)
+                    await self._post_awards(guild, conf, mode="scheduled")
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -312,14 +318,21 @@ class ReactKing(commands.Cog):
         return last_scheduled(datetime.now(timezone.utc), conf["day"], hour, minute, tz)
 
     async def _post_awards(
-        self, guild: discord.Guild, conf: dict, give_roles: bool, destination: Optional[discord.abc.Messageable] = None
+        self, guild: discord.Guild, conf: dict, mode: str = "scheduled", here: Optional[discord.abc.Messageable] = None
     ) -> Optional[str]:
-        """Count the past week and post the awards card. Returns an error message, or None.
+        """Count the past week and post the results. Returns an error message, or None.
 
-        `destination` overrides the awards channel (used by preview, which also
-        skips roles and pings).
+        mode "scheduled": public card in the awards channel (winners pinged), full
+                          results to the mod channel, roles moved.
+        mode "preview":   both cards posted `here`; no roles, no pings.
+        mode "testrun":   both cards posted `here`; roles moved for real, no pings.
         """
-        channel = destination or guild.get_channel(conf["awards_channel"])
+        give_roles = mode in ("scheduled", "testrun")
+        if mode == "scheduled":
+            channel = guild.get_channel(conf["awards_channel"]) if conf["awards_channel"] else None
+            mod_channel = guild.get_channel(conf["mod_channel"]) if conf["mod_channel"] else None
+        else:
+            channel = mod_channel = here
         if channel is None:
             return "The awards channel is gone. Set it again with `!awards channel #channel`."
 
@@ -361,11 +374,36 @@ class ReactKing(commands.Cog):
                 if note:
                     role_notes.append(note)
 
+        # Overall Emoji King: all award emotes added together. Goes at the top.
+        if conf.get("overall") and tallies:
+            overall = Tally()
+            for tally in tallies:
+                for member, count in tally.totals.items():
+                    overall.totals[member] += count
+            full.insert_field_at(
+                0, name="👑 Overall", inline=False,
+                value="\n".join(self._ranking_lines(overall, "total", 5, staff=staff)) or "Nobody this week.",
+            )
+            ranking = overall.ranking(3, exclude=staff)
+            kings = [m for m, c in ranking if c == ranking[0][1]] if ranking else []
+            winners.update(kings)
+            embed.insert_field_at(
+                0, name="👑 Emoji King", inline=False,
+                value="\n".join(self._ranking_lines(overall, "total", 3, exclude=staff)) or "Nobody this week.",
+            )
+            if give_roles and conf.get("overall_role_id"):
+                note = await self._move_role(guild, conf["overall_role_id"], kings, "Emoji")
+                if note:
+                    role_notes.append(note)
+
         embed.set_footer(text="Last 7 days · self-reacts and bots don't count · staff can't win")
         full.set_footer(text="Last 7 days · 🛡️ = admin/mod (can't win the public award)")
-        if give_roles:
+        if mode == "scheduled":
             content = "Congrats " + ", ".join(f"<@{w}>" for w in sorted(winners)) + "! 👑" if winners else None
             mentions = discord.AllowedMentions(users=True, roles=False, everyone=False)
+        elif mode == "testrun":
+            content = "-# Test run: roles were given/removed for real. Nobody pinged, nothing posted publicly."
+            mentions = discord.AllowedMentions.none()
         else:
             content = "-# Preview: no roles given, nobody pinged."
             mentions = discord.AllowedMentions.none()
@@ -375,8 +413,7 @@ class ReactKing(commands.Cog):
             log.warning("Couldn't post awards in guild %s: %r", guild.id, e)
             return "I couldn't post in the awards channel. Check my permissions there."
 
-        # Full results go to the private mod channel (or, for a preview, right here).
-        mod_channel = destination or (guild.get_channel(conf["mod_channel"]) if conf["mod_channel"] else None)
+        # Full results go to the private mod channel (or, for a preview/test run, right here).
         if mod_channel is not None:
             try:
                 await mod_channel.send(embed=full, allowed_mentions=discord.AllowedMentions.none())
@@ -525,6 +562,9 @@ class ReactKing(commands.Cog):
             lines.append(f"{a['emoji']} King" + (f" → {role.mention}" if role else ""))
         if not conf["awards"]:
             lines.append("none yet, add one with `!awards add :kek:`")
+        if conf["overall"]:
+            role = ctx.guild.get_role(conf["overall_role_id"]) if conf["overall_role_id"] else None
+            lines.append("👑 Overall Emoji King" + (f" → {role.mention}" if role else ""))
         if any(a.get("role_id") for a in conf["awards"]) and not ctx.guild.me.guild_permissions.manage_roles:
             lines.append("⚠️ I need **Manage Roles** to hand out award roles.")
         await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
@@ -542,6 +582,43 @@ class ReactKing(commands.Cog):
             await ctx.send("Add an award first, e.g. `!awards add :kek:`.")
             return
         async with ctx.typing():
-            error = await self._post_awards(ctx.guild, conf, give_roles=False, destination=ctx.channel)
+            error = await self._post_awards(ctx.guild, conf, mode="preview", here=ctx.channel)
         if error:
             await ctx.send(error)
+
+    @awards.command(name="testrun")
+    @commands.cooldown(1, 30, commands.BucketType.guild)
+    async def awards_testrun(self, ctx: commands.Context):
+        """Like preview, but gives and removes the award roles for real.
+
+        Results are posted here only; nobody is pinged and nothing goes to the
+        awards channel. Handy with placeholder roles before switching to the real ones.
+        """
+        conf = await self.config.guild(ctx.guild).all()
+        if not conf["awards"]:
+            await ctx.send("Add an award first, e.g. `!awards add :kek:`.")
+            return
+        async with ctx.typing():
+            error = await self._post_awards(ctx.guild, conf, mode="testrun", here=ctx.channel)
+        if error:
+            await ctx.send(error)
+
+    @awards.command(name="overall")
+    async def awards_overall(self, ctx: commands.Context, state: str, role: Optional[discord.Role] = None):
+        """Overall Emoji King (all award emotes combined): `overall on @role` or `overall off`."""
+        conf = self.config.guild(ctx.guild)
+        if state.lower() == "off":
+            await conf.overall.set(False)
+            await ctx.send("Overall Emoji King is off.")
+            return
+        if state.lower() != "on":
+            await ctx.send("Use `!awards overall on @role` (role optional) or `!awards overall off`.")
+            return
+        if role is not None and (role >= ctx.guild.me.top_role or role.managed):
+            await ctx.send(f"I can't give out {role.mention}: my role must be above it in the role list.",
+                           allowed_mentions=discord.AllowedMentions.none())
+            return
+        await conf.overall.set(True)
+        await conf.overall_role_id.set(role.id if role else None)
+        extra = f" The winner gets {role.mention}." if role else ""
+        await ctx.send(f"Overall Emoji King is on.{extra}", allowed_mentions=discord.AllowedMentions.none())
