@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking
-!load scoreboard embedfix emotesteal reactking
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash
+!load scoreboard embedfix emotesteal reactking modslash
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking
+!reload scoreboard embedfix emotesteal reactking modslash
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -166,3 +166,32 @@ channel.
 Award roles need **Manage Roles**, with the bot's role above the award roles.
 If the bot was offline at award time it posts late, up to 12 hours; after
 that it skips the week.
+
+## modslash
+
+Slash command versions of Red's moderation commands (Red's own Mod, Warnings
+and Mutes cogs have no slash commands). Each one runs the matching Red command
+underneath, so modlog cases, warning points, mute settings, DMs and permissions
+work exactly like the `!` versions.
+
+| Slash command | Same as |
+| --- | --- |
+| `/ban user [days] [reason]` | `!ban` (works for people not in the server) |
+| `/kick member [reason]` | `!kick` |
+| `/tempban member [duration] [days] [reason]` | `!tempban` |
+| `/softban member [reason]` | `!softban` |
+| `/unban user_id [reason]` | `!unban` |
+| `/warn member reason [points]` | `!warn` |
+| `/warnings member` | `!warnings` |
+| `/unwarn member warn_id [reason]` | `!unwarn` |
+| `/mute member [duration] [reason]` | `!mute` |
+| `/timeout member [duration] [reason]` | `!timeout` |
+| `/unmute member [reason]` | `!unmute` |
+| `/slowmode interval` | `!slowmode` |
+| `/purge amount [user]` | deletes the last N messages (optionally one person's); reply only you see |
+
+Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
+modslash`, then `!slash sync`. Discord hides each command from members without
+the matching Discord permission (e.g. Ban Members for `/ban`); change who sees
+them in Server Settings → Integrations → the bot. Red's own mod/admin role
+checks still apply either way.

@@ -2,6 +2,6 @@
     "author": ["marthomahew"],
     "name": "refbot-cogs",
     "short": "Custom cogs for Refbot, a Vikings fan server bot.",
-    "description": "Custom cogs for Refbot: a live NFL scoreboard, social media embed fixing, emoji/sticker copying, and reaction leaderboards.",
+    "description": "Custom cogs for Refbot: a live NFL scoreboard, social media embed fixing, emoji/sticker copying, reaction leaderboards, and slash mod commands.",
     "install_msg": "Thanks for installing refbot-cogs! Use `[p]cog list refbot-cogs` to see the available cogs."
 }
