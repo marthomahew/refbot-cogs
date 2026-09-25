@@ -20,7 +20,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Union
+from typing import Collection, Optional, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
@@ -89,10 +89,17 @@ class Tally:
 
     totals: dict[int, int] = field(default_factory=lambda: defaultdict(int))  # member id -> reactions
     messages: dict[int, int] = field(default_factory=lambda: defaultdict(int))  # member id -> messages
-    best: tuple[int, str] = (0, "")  # (count, jump url) of the most-reacted message
+    # member id -> (count, jump url) of that member's most-reacted message
+    best_by_owner: dict[int, tuple[int, str]] = field(default_factory=dict)
 
-    def ranking(self, top: int = TOP_N) -> list[tuple[int, int]]:
-        return sorted(self.totals.items(), key=lambda item: item[1], reverse=True)[:top]
+    def ranking(self, top: int = TOP_N, exclude: Collection[int] = ()) -> list[tuple[int, int]]:
+        items = [(member, count) for member, count in self.totals.items() if member not in exclude]
+        return sorted(items, key=lambda item: item[1], reverse=True)[:top]
+
+    def best(self, exclude: Collection[int] = ()) -> tuple[int, str]:
+        """(count, jump url) of the most-reacted message, skipping excluded members."""
+        options = [value for member, value in self.best_by_owner.items() if member not in exclude]
+        return max(options, default=(0, ""), key=lambda value: value[0])
 
 
 class ReactKing(commands.Cog):
@@ -103,6 +110,7 @@ class ReactKing(commands.Cog):
         self.config = Config.get_conf(self, identifier=0x5C0BE0A2D4, force_registration=True)
         self.config.register_guild(
             awards_channel=None,
+            mod_channel=None,  # private channel for full results (staff included)
             # [{"emoji": "<:kek:123>" or "😂", "role_id": int or None}, ...]
             awards=[],
             day=0,  # 0 = Monday
@@ -186,24 +194,27 @@ class ReactKing(commands.Cog):
                             if count:
                                 tally.totals[owner] += count
                                 tally.messages[owner] += 1
-                                if count > tally.best[0]:
-                                    tally.best = (count, message.jump_url)
+                                if count > tally.best_by_owner.get(owner, (0, ""))[0]:
+                                    tally.best_by_owner[owner] = (count, message.jump_url)
                 except discord.HTTPException as e:
                     log.warning("Couldn't read history in #%s: %r", chan, e)
         return tallies
 
     @staticmethod
-    def _ranking_lines(tally: Tally, target: Target, top: int) -> list[str]:
+    def _ranking_lines(
+        tally: Tally, target: Target, top: int, exclude: Collection[int] = (), staff: Collection[int] = ()
+    ) -> list[str]:
+        """Ranked lines. `exclude` drops members entirely; `staff` just marks them 🛡️."""
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         lines = []
         rank, previous = 0, None
-        for position, (member_id, count) in enumerate(tally.ranking(top), start=1):
+        for position, (member_id, count) in enumerate(tally.ranking(top, exclude), start=1):
             if count != previous:  # ties share a rank (and medal): 1, 1, 3
                 rank, previous = position, count
             msgs = tally.messages[member_id]
             lines.append(
-                f"{medals.get(rank, f'{rank}.')} <@{member_id}> — **{count}** {target} "
-                f"({msgs} message{'s' if msgs != 1 else ''})"
+                f"{medals.get(rank, f'{rank}.')} <@{member_id}>{' 🛡️' if member_id in staff else ''} "
+                f"— **{count}** {target} ({msgs} message{'s' if msgs != 1 else ''})"
             )
         return lines
 
@@ -255,7 +266,8 @@ class ReactKing(commands.Cog):
             return
 
         lines = self._ranking_lines(tally, target, TOP_N)
-        lines += ["", f"Most {target}'d message: **{tally.best[0]}** — {tally.best[1]}"]
+        best_count, best_url = tally.best()
+        lines += ["", f"Most {target}'d message: **{best_count}** — {best_url}"]
         embed = discord.Embed(title=f"👑 {target} King", description="\n".join(lines), color=discord.Color.gold())
         embed.set_footer(text=f"{'#' + channel.name if channel else 'Whole server'} · {period_text(delta)} · "
                               "self-reacts and bots don't count")
@@ -315,29 +327,42 @@ class ReactKing(commands.Cog):
         awards = [(t, r) for t, r in awards if t is not None]
         tallies = await self._count(guild, [t for t, _ in awards], datetime.now(timezone.utc) - timedelta(days=7))
 
+        # Admins and mods can't win (but their reactions still count for others).
+        everyone = {member for tally in tallies for member in tally.totals}
+        staff = {member for member in everyone if await self._is_staff(guild, member)}
+
         embed = discord.Embed(title="👑 Weekly Reaction Kings", color=discord.Color.gold())
+        full = discord.Embed(title="🛡️ Weekly Reaction Kings: full results (staff included)", color=discord.Color.dark_grey())
         winners: set[int] = set()
         role_notes: list[str] = []
         for (target, role_id), tally in zip(awards, tallies):
-            ranking = tally.ranking(3)
-            if not ranking:
-                embed.add_field(name=f"{target} King", value="Nobody this week.", inline=False)
-                continue
-            lines = self._ranking_lines(tally, target, 3)
-            if tally.best[0]:
-                lines.append(f"-# most {target}'d message: {tally.best[0]} — {tally.best[1]}")
-            embed.add_field(name=f"{target} King", value="\n".join(lines)[:1024], inline=False)
+            # Private card: everyone, staff marked.
+            full_lines = self._ranking_lines(tally, target, 5, staff=staff) or ["Nobody this week."]
+            full.add_field(name=f"{target}", value="\n".join(full_lines)[:1024], inline=False)
 
-            # Everyone tied for first is king.
-            top_count = ranking[0][1]
-            kings = [member_id for member_id, count in ranking if count == top_count]
-            winners.update(kings)
+            # Public card: staff left out, so the next person moves up.
+            ranking = tally.ranking(3, exclude=staff)
+            kings: list[int] = []
+            if ranking:
+                lines = self._ranking_lines(tally, target, 3, exclude=staff)
+                best_count, best_url = tally.best(exclude=staff)
+                if best_count:
+                    lines.append(f"-# most {target}'d message: {best_count} — {best_url}")
+                embed.add_field(name=f"{target} King", value="\n".join(lines)[:1024], inline=False)
+                # Everyone tied for first is king.
+                top_count = ranking[0][1]
+                kings = [member_id for member_id, count in ranking if count == top_count]
+                winners.update(kings)
+            else:
+                embed.add_field(name=f"{target} King", value="Nobody this week.", inline=False)
+            # Also runs with no kings: the role is "of the week", so last week's holder loses it.
             if give_roles and role_id:
                 note = await self._move_role(guild, role_id, kings, target)
                 if note:
                     role_notes.append(note)
 
-        embed.set_footer(text="Last 7 days · self-reacts and bots don't count")
+        embed.set_footer(text="Last 7 days · self-reacts and bots don't count · staff can't win")
+        full.set_footer(text="Last 7 days · 🛡️ = admin/mod (can't win the public award)")
         if give_roles:
             content = "Congrats " + ", ".join(f"<@{w}>" for w in sorted(winners)) + "! 👑" if winners else None
             mentions = discord.AllowedMentions(users=True, roles=False, everyone=False)
@@ -349,9 +374,26 @@ class ReactKing(commands.Cog):
         except discord.HTTPException as e:
             log.warning("Couldn't post awards in guild %s: %r", guild.id, e)
             return "I couldn't post in the awards channel. Check my permissions there."
+
+        # Full results go to the private mod channel (or, for a preview, right here).
+        mod_channel = destination or (guild.get_channel(conf["mod_channel"]) if conf["mod_channel"] else None)
+        if mod_channel is not None:
+            try:
+                await mod_channel.send(embed=full, allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException as e:
+                log.warning("Couldn't post full award results in guild %s: %r", guild.id, e)
         for note in role_notes:
             log.warning(note)
         return None
+
+    async def _is_staff(self, guild: discord.Guild, member_id: int) -> bool:
+        """Admins/mods: Red's admin & mod roles (`[p]set roles`), Administrator, or the owner."""
+        member = guild.get_member(member_id)
+        if member is None:  # left the server
+            return False
+        if member.id == guild.owner_id or member.guild_permissions.administrator:
+            return True
+        return await self.bot.is_mod(member)
 
     async def _move_role(self, guild: discord.Guild, role_id: int, kings: list[int], target: Target) -> Optional[str]:
         """Take the award role from last week's holders and give it to this week's kings."""
@@ -390,6 +432,12 @@ class ReactKing(commands.Cog):
         """Where the weekly awards get posted."""
         await self.config.guild(ctx.guild).awards_channel.set(channel.id)
         await ctx.send(f"Weekly awards will be posted in {channel.mention}.")
+
+    @awards.command(name="modchannel")
+    async def awards_modchannel(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Private channel for the full weekly results, with admins and mods included."""
+        await self.config.guild(ctx.guild).mod_channel.set(channel.id)
+        await ctx.send(f"Full results (staff included) will go to {channel.mention}.")
 
     @awards.command(name="add")
     async def awards_add(self, ctx: commands.Context, emoji: str, role: Optional[discord.Role] = None):
@@ -467,6 +515,8 @@ class ReactKing(commands.Cog):
         lines = [
             f"**Status:** {'on' if conf['enabled'] else 'off'}",
             f"**Channel:** {channel.mention if channel else 'not set'}",
+            f"**Mod channel (full results):** "
+            f"{ctx.guild.get_channel(conf['mod_channel']).mention if conf['mod_channel'] and ctx.guild.get_channel(conf['mod_channel']) else 'not set'}",
             f"**When:** {DAYS[conf['day']].title()} {conf['time']} ({conf['tz']})",
             "**Awards:**",
         ]
@@ -482,7 +532,11 @@ class ReactKing(commands.Cog):
     @awards.command(name="preview")
     @commands.cooldown(1, 30, commands.BucketType.guild)
     async def awards_preview(self, ctx: commands.Context):
-        """Post this week's awards here now, as a test (no roles, no pings)."""
+        """Post this week's awards here now, as a test (no roles, no pings).
+
+        Shows both the public card and the full staff-included results, so run it
+        somewhere private.
+        """
         conf = await self.config.guild(ctx.guild).all()
         if not conf["awards"]:
             await ctx.send("Add an award first, e.g. `!awards add :kek:`.")

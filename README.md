@@ -133,6 +133,7 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 | --- | --- | --- |
 | `!reactking :emoji: [period] [#channel]` | Everyone | Top 10 members by that reaction, plus the most-reacted message |
 | `!awards channel #channel` | Admin | Where the weekly awards post |
+| `!awards modchannel #channel` | Admin | Private channel for full results with admins/mods included |
 | `!awards add :emoji: [@role]` | Admin | Add a weekly king award; the role moves to each week's winner |
 | `!awards remove :emoji:` | Admin | Remove an award |
 | `!awards time <day> <HH:MM> [timezone]` | Admin | When to post, e.g. `mon 12:00 America/Chicago` |
@@ -150,7 +151,11 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 
 **Weekly awards:** once a week (default Monday 12:00 Central) the bot posts one
 card with every award's top 3 for the last 7 days, pings the winners, and moves
-each award role from last week's king to this week's (ties share the crown).
+each award role from last week's king to this week's (ties share the crown; a
+week with no winner takes the role back). Admins and mods (Red's admin/mod roles,
+Administrator permission, or the owner) can't win, but their reactions still
+count for others; the full results, staff included and marked 🛡️, go to the mod
+channel.
 Award roles need **Manage Roles**, with the bot's role above the award roles.
 If the bot was offline at award time it posts late, up to 12 hours; after
 that it skips the week.
