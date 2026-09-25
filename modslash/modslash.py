@@ -63,7 +63,8 @@ class ModSlash(commands.Cog):
             return
 
         # Mod actions can take a few seconds (DMs, modlog); Discord only waits 3.
-        await interaction.response.defer(thinking=True)
+        # ephemeral = "Only you can see this": confirmations stay private to the mod.
+        await interaction.response.defer(ephemeral=True, thinking=True)
         ctx = await self.bot.get_context(interaction)
         ctx.command = command
         ctx.invoked_with = command.name
@@ -71,12 +72,14 @@ class ModSlash(commands.Cog):
         # Red commands often confirm with a ✅ reaction on the command message.
         # A slash command has no real message, so that silently does nothing.
         # Track whether the command said anything, and say "Done" if not.
+        # Every reply is forced private, since some Red commands send several.
         replied = False
         original_send = ctx.send
 
         async def tracked_send(*a, **kw):
             nonlocal replied
             replied = True
+            kw["ephemeral"] = True
             return await original_send(*a, **kw)
 
         ctx.send = tracked_send

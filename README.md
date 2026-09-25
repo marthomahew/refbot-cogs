@@ -190,9 +190,9 @@ work exactly like the `!` versions.
 | `/mutechannel member [duration] [reason]` | `!mutechannel` (this channel only) |
 | `/unmutechannel member [reason]` | `!unmutechannel` |
 | `/slowmode interval` | `!slowmode` |
-| `/purge amount [user]` | deletes the last N messages (optionally one person's); reply only you see |
+| `/purge amount [user]` | deletes the last N messages (optionally one person's) |
 
-Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
+All replies are private ("Only you can see this"); modlog and log channels still record everything. Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
 modslash`, then `!slash sync`. Discord hides each command from members without
 the matching Discord permission (e.g. Ban Members for `/ban`); change who sees
 them in Server Settings → Integrations → the bot. Red's own mod/admin role
