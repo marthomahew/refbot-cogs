@@ -187,7 +187,7 @@ work exactly like the `!` versions.
 | `/mute member [duration] [reason]` | `!mute` |
 | `/timeout member [duration] [reason]` | `!timeout` |
 | `/unmute member [reason]` | `!unmute` |
-| `/slowmode interval` | `!slowmode` |
+| `/slow interval` | `!slowmode` |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's); reply only you see |
 
 Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
