@@ -2,7 +2,7 @@
     "author": ["marthomahew"],
     "name": "reactking",
     "short": "Leaderboards for who gets the most of a reaction emoji.",
-    "description": "`[p]reactking :kek:` shows who got the most :kek: reactions over a period. Self-reactions and bots don't count, and embedfix reposts count for the person who shared them.",
+    "description": "`[p]reactking :kek:` shows who got the most :kek: reactions over a period, and `[p]awards` posts weekly reaction kings with optional winner roles. Self-reactions and bots don't count, and embedfix reposts count for the person who shared them.",
     "install_msg": "Loaded? Try `[p]reactking :kek:` (or any emoji). The bot needs Read Message History in the channels it should count.",
     "tags": ["reactions", "leaderboard", "fun"],
     "min_bot_version": "3.5.0",

@@ -132,6 +132,13 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 | Command | Who | What it does |
 | --- | --- | --- |
 | `!reactking :emoji: [period] [#channel]` | Everyone | Top 10 members by that reaction, plus the most-reacted message |
+| `!awards channel #channel` | Admin | Where the weekly awards post |
+| `!awards add :emoji: [@role]` | Admin | Add a weekly king award; the role moves to each week's winner |
+| `!awards remove :emoji:` | Admin | Remove an award |
+| `!awards time <day> <HH:MM> [timezone]` | Admin | When to post, e.g. `mon 12:00 America/Chicago` |
+| `!awards toggle` | Admin | Turn weekly awards on/off |
+| `!awards list` | Admin | Show award settings |
+| `!awards preview` | Admin | Post this week's results here now as a test (no roles, no pings) |
 
 - Period like `24h`, `7d` (default) or `2w`, up to `365d`. Leave out the channel
   to count the whole server (plus active threads).
@@ -140,3 +147,10 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 - Nothing is stored; it reads message history each time, so long periods on a
   busy server can take a little while. One scan at a time per server.
 - The bot needs Read Message History in the channels it should count.
+
+**Weekly awards:** once a week (default Monday 12:00 Central) the bot posts one
+card with every award's top 3 for the last 7 days, pings the winners, and moves
+each award role from last week's king to this week's (ties share the crown).
+Award roles need **Manage Roles**, with the bot's role above the award roles.
+If the bot was offline at award time it posts late, up to 12 hours; after
+that it skips the week.
