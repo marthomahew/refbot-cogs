@@ -245,9 +245,16 @@ class ModSlash(commands.Cog):
         except commands.BadArgument as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
+        # Build exactly what Red's own MuteTime converter produces. Red reads the
+        # end time from "until"; with only "duration", a timeout silently did
+        # nothing and a mute had no expiry.
         time_and_reason = {}
         if length:
+            if length <= timedelta(0):
+                await interaction.response.send_message("The duration has to be longer than 0.", ephemeral=True)
+                return
             time_and_reason["duration"] = length
+            time_and_reason["until"] = interaction.created_at + length
         if reason:
             time_and_reason["reason"] = reason
         await self._run(interaction, command_name, [member], time_and_reason=time_and_reason)
