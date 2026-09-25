@@ -134,6 +134,8 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 | `!reactking :emoji: [period] [#channel]` | Everyone | Top 10 members by that reaction, plus the most-reacted message |
 | `!awards channel #channel` | Admin | Where the weekly awards post |
 | `!awards modchannel #channel` | Admin | Private channel for full results with admins/mods included |
+| `!awards exclude #channel` | Admin | Never read that channel or its threads, for awards or `!reactking` (the command message is deleted so the name doesn't linger) |
+| `!awards unexclude #channel` | Admin | Count it again |
 | `!awards add :emoji: [@role]` | Admin | Add a weekly king award; the role moves to each week's winner |
 | `!awards remove :emoji:` | Admin | Remove an award |
 | `!awards time <day> <HH:MM> [timezone]` | Admin | When to post, e.g. `mon 12:00 America/Chicago` |
@@ -150,6 +152,9 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 - Nothing is stored; it reads message history each time, so long periods on a
   busy server can take a little while. One scan at a time per server.
 - The bot needs Read Message History in the channels it should count.
+- Excluded channels (and their threads) and all private threads are never read,
+  so they can't appear in any leaderboard, award or "most reacted" link. `!awards
+  list` shows only how many channels are excluded, never their names.
 
 **Weekly awards:** once a week (default Monday 12:00 Central) the bot posts one
 card with every award's top 3 for the last 7 days, pings the winners, and moves

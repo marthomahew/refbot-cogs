@@ -113,6 +113,9 @@ class ReactKing(commands.Cog):
             mod_channel=None,  # private channel for full results (staff included)
             overall=False,  # also crown an overall "React King" (all award emotes combined)
             overall_role_id=None,
+            # Channels never read at all (and their threads), e.g. a private vent channel.
+            # Used by both the awards and `!reactking`, so they can never show up anywhere.
+            excluded_channels=[],
             # [{"emoji": "<:kek:123>" or "😂", "role_id": int or None}, ...]
             awards=[],
             day=0,  # 0 = Monday
@@ -159,7 +162,18 @@ class ReactKing(commands.Cog):
             return isinstance(reaction.emoji, str) and reaction.emoji == target
         return getattr(reaction.emoji, "id", None) == target.id
 
-    def _channels_to_scan(self, guild: discord.Guild, only: Optional[discord.TextChannel]) -> list:
+    @staticmethod
+    def _is_excluded(chan, excluded: Collection[int]) -> bool:
+        """Excluded channels and their threads, plus every private thread (invite-only by nature)."""
+        if chan.id in excluded:
+            return True
+        if isinstance(chan, discord.Thread):
+            return chan.parent_id in excluded or chan.type is discord.ChannelType.private_thread
+        return False
+
+    def _channels_to_scan(
+        self, guild: discord.Guild, only: Optional[discord.TextChannel], excluded: Collection[int]
+    ) -> list:
         me = guild.me
         if only is not None:
             candidates = [only] + [t for t in guild.threads if t.parent_id == only.id]
@@ -167,7 +181,8 @@ class ReactKing(commands.Cog):
             candidates = list(guild.text_channels) + list(guild.threads)  # threads = active ones
         return [
             c for c in candidates
-            if c.permissions_for(me).read_message_history and c.permissions_for(me).view_channel
+            if not self._is_excluded(c, excluded)
+            and c.permissions_for(me).read_message_history and c.permissions_for(me).view_channel
         ]
 
     async def _count(
@@ -175,8 +190,9 @@ class ReactKing(commands.Cog):
     ) -> list[Tally]:
         """Read history once and tally every target emoji. One Tally per target, same order."""
         tallies = [Tally() for _ in targets]
+        excluded = await self.config.guild(guild).excluded_channels()
         async with self._scan_lock:
-            for chan in self._channels_to_scan(guild, only):
+            for chan in self._channels_to_scan(guild, only, excluded):
                 try:
                     async for message in chan.history(limit=None, after=cutoff):
                         if not message.reactions:
@@ -257,6 +273,10 @@ class ReactKing(commands.Cog):
                 pass
         if delta is None:
             await ctx.send("Period should look like `24h`, `7d` or `2w`.")
+            return
+        if channel is not None and self._is_excluded(channel, await self.config.guild(ctx.guild).excluded_channels()):
+            # Deliberately vague: don't confirm anything about the channel.
+            await ctx.send("I can't count that channel.")
             return
         if self._scan_lock.locked():
             await ctx.send("I'm already counting something. Try again in a moment.")
@@ -470,6 +490,27 @@ class ReactKing(commands.Cog):
         await self.config.guild(ctx.guild).awards_channel.set(channel.id)
         await ctx.send(f"Weekly awards will be posted in {channel.mention}.")
 
+    @awards.command(name="exclude")
+    async def awards_exclude(self, ctx: commands.Context, channel: discord.abc.GuildChannel):
+        """Never read a channel (or its threads) for awards or `!reactking`."""
+        async with self.config.guild(ctx.guild).excluded_channels() as excluded:
+            if channel.id not in excluded:
+                excluded.append(channel.id)
+        # Delete the command so the channel's name isn't left sitting in chat.
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+        await ctx.send("Done. That channel will never be counted.", delete_after=10)
+
+    @awards.command(name="unexclude")
+    async def awards_unexclude(self, ctx: commands.Context, channel: discord.abc.GuildChannel):
+        """Count a previously excluded channel again."""
+        async with self.config.guild(ctx.guild).excluded_channels() as excluded:
+            if channel.id in excluded:
+                excluded.remove(channel.id)
+        await ctx.send(f"{channel.mention} will be counted again.", allowed_mentions=discord.AllowedMentions.none())
+
     @awards.command(name="modchannel")
     async def awards_modchannel(self, ctx: commands.Context, channel: discord.TextChannel):
         """Private channel for the full weekly results, with admins and mods included."""
@@ -555,6 +596,8 @@ class ReactKing(commands.Cog):
             f"**Mod channel (full results):** "
             f"{ctx.guild.get_channel(conf['mod_channel']).mention if conf['mod_channel'] and ctx.guild.get_channel(conf['mod_channel']) else 'not set'}",
             f"**When:** {DAYS[conf['day']].title()} {conf['time']} ({conf['tz']})",
+            # A count only, never names, in case this is run somewhere public.
+            f"**Excluded channels:** {len(conf['excluded_channels'])} (plus all private threads)",
             "**Awards:**",
         ]
         for a in conf["awards"]:
