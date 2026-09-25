@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal
-!load scoreboard embedfix emotesteal
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking
+!load scoreboard embedfix emotesteal reactking
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal
+!reload scoreboard embedfix emotesteal reactking
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -124,3 +124,19 @@ It reports how many slots are left, skips ones already in the server, and adds u
 to 10 at a time. Discord's own built-in stickers can't be copied. The bot needs
 the **Manage Expressions** permission (not needed for `!download`). Both are text
 commands only (not slash commands), because they work by replying to a message.
+
+## reactking
+
+Leaderboards for who gets the most of one reaction emoji (the :kek: king).
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `!reactking :emoji: [period] [#channel]` | Everyone | Top 10 members by that reaction, plus the most-reacted message |
+
+- Period like `24h`, `7d` (default) or `2w`, up to `365d`. Leave out the channel
+  to count the whole server (plus active threads).
+- Reacting to your own message and bots' reactions don't count.
+- embedfix reposts count for the person in "shared by".
+- Nothing is stored; it reads message history each time, so long periods on a
+  busy server can take a little while. One scan at a time per server.
+- The bot needs Read Message History in the channels it should count.
