@@ -62,8 +62,11 @@ class EmoteSteal(commands.Cog):
             async with self._session.get(url) as resp:
                 resp.raise_for_status()
                 return await resp.read()
+        except aiohttp.ClientResponseError as e:
+            log.warning("Download failed for %s: HTTP %s", url, e.status)  # e.g. 404 = emoji deleted
+            return None
         except Exception as e:
-            log.warning("Download failed for %s: %r", url, e)
+            log.warning("Download failed for %s: %s", url, type(e).__name__)
             return None
 
     # ------------------------------------------------------------ emoji
@@ -141,7 +144,31 @@ class EmoteSteal(commands.Cog):
             return f"❌ Sticker `{name}`: Discord refused it ({e.text or e.status})."
         return f"✅ Added sticker **{new.name}** ({used + 1}/{guild.sticker_limit} sticker slots)"
 
-    # ------------------------------------------------------------ command
+    # ------------------------------------------------------------ shared helpers
+
+    async def _find_source(self, ctx: commands.Context) -> Optional[discord.Message]:
+        """The replied-to message, otherwise the command message itself.
+        None (after telling the user) if the replied-to message is gone."""
+        reference = ctx.message.reference
+        if not (reference and reference.message_id):
+            return ctx.message
+        if isinstance(reference.resolved, discord.Message):
+            return reference.resolved
+        try:
+            return await ctx.channel.fetch_message(reference.message_id)
+        except discord.HTTPException:
+            await ctx.send("I couldn't find the message you replied to.")
+            return None
+
+    @staticmethod
+    def _collect(message: discord.Message) -> tuple[dict[str, tuple[str, bool]], list[discord.StickerItem]]:
+        """Unique custom emoji ({id: (name, animated)}) and stickers in a message."""
+        emojis: dict[str, tuple[str, bool]] = {}
+        for animated, emoji_name, emoji_id in EMOJI_RE.findall(message.content):
+            emojis.setdefault(emoji_id, (emoji_name, bool(animated)))
+        return emojis, list(message.stickers)
+
+    # ------------------------------------------------------------ commands
 
     @commands.command(name="steal")
     @commands.guild_only()
@@ -162,16 +189,9 @@ class EmoteSteal(commands.Cog):
             )
             return
 
-        # Where to look: the replied-to message, otherwise this command message itself.
-        source = ctx.message
-        if ctx.message.reference and ctx.message.reference.message_id:
-            source = ctx.message.reference.resolved
-            if not isinstance(source, discord.Message):
-                try:
-                    source = await ctx.channel.fetch_message(ctx.message.reference.message_id)
-                except discord.HTTPException:
-                    await ctx.send("I couldn't find the message you replied to.")
-                    return
+        source = await self._find_source(ctx)
+        if source is None:
+            return
 
         # If the "name" is actually an emoji (e.g. `!steal <:pepe:123>`), it's not a rename.
         if name and EMOJI_RE.fullmatch(name):
@@ -180,11 +200,7 @@ class EmoteSteal(commands.Cog):
             await ctx.send("Names can only use letters, numbers and underscores (2-32 characters).")
             return
 
-        # Collect unique emoji from the text, then stickers.
-        emojis: dict[str, tuple[str, bool]] = {}
-        for animated, emoji_name, emoji_id in EMOJI_RE.findall(source.content):
-            emojis.setdefault(emoji_id, (emoji_name, bool(animated)))
-        stickers = list(source.stickers)
+        emojis, stickers = self._collect(source)
 
         total = len(emojis) + len(stickers)
         if total == 0:
@@ -205,3 +221,54 @@ class EmoteSteal(commands.Cog):
         if total > MAX_PER_COMMAND:
             lines.append(f"(Only the first {MAX_PER_COMMAND} were added. Run it again for the rest.)")
         await ctx.send("\n".join(lines))
+
+    @commands.command(name="download")
+    @commands.guild_only()
+    @commands.cooldown(1, 10, commands.BucketType.user)
+    async def download(self, ctx: commands.Context):
+        """Post the custom emoji and stickers from a message as files you can save.
+
+        Reply to a message with `[p]download`, or paste emoji into the command.
+        Anyone can use it; it doesn't change the server.
+        """
+        source = await self._find_source(ctx)
+        if source is None:
+            return
+        emojis, stickers = self._collect(source)
+        if not emojis and not stickers:
+            await ctx.send("No custom emoji or stickers found. Reply to a message that has some with `!download`.")
+            return
+
+        # Discord allows at most 10 files per message, so don't download more than that.
+        skipped: list[str] = []
+        total = len(emojis) + len(stickers)
+        if total > 10:
+            skipped.append(f"{total - 10} more (only 10 files fit in one message)")
+        emoji_items = list(emojis.items())[:10]
+        stickers = stickers[: 10 - len(emoji_items)]
+
+        files: list[discord.File] = []
+        async with ctx.typing():
+            for emoji_id, (name, animated) in emoji_items:
+                data = await self._download(emoji_url(emoji_id, animated))
+                if data:
+                    files.append(discord.File(io.BytesIO(data), filename=f"{name}.{'gif' if animated else 'png'}"))
+                else:
+                    skipped.append(f"`:{name}:` (couldn't download)")
+            for item in stickers:
+                if item.format is discord.StickerFormatType.lottie:
+                    skipped.append(f"sticker `{item.name}` (Discord's built-in stickers aren't image files)")
+                    continue
+                try:
+                    data = await item.read()
+                except discord.HTTPException:
+                    skipped.append(f"sticker `{item.name}` (couldn't download)")
+                    continue
+                ext = "gif" if item.format is discord.StickerFormatType.gif else "png"
+                files.append(discord.File(io.BytesIO(data), filename=f"{item.name}.{ext}"))
+
+        note = "Skipped: " + ", ".join(skipped) if skipped else None
+        if files:
+            await ctx.send(content=note, files=files)
+        else:
+            await ctx.send(note or "Nothing to download.")

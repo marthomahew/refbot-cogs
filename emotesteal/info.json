@@ -2,7 +2,7 @@
     "author": ["marthomahew"],
     "name": "emotesteal",
     "short": "Add emoji and stickers from other servers to this one.",
-    "description": "Reply to a message with `[p]steal` and the bot adds its custom emoji and stickers to this server. For admins and mods.",
+    "description": "Reply to a message with `[p]steal` and the bot adds its custom emoji and stickers to this server (admins and mods), or `[p]download` to get them as image files anyone can save.",
     "install_msg": "Loaded? Give the bot the Manage Expressions permission, then reply to a message with `[p]steal`.",
     "tags": ["emoji", "stickers", "utility"],
     "min_bot_version": "3.5.0",

@@ -118,8 +118,9 @@ Nitro user posts something good.
 | `!steal` (as a reply) | Mod | Add every custom emoji and sticker in the replied-to message |
 | `!steal newname` (as a reply) | Mod | Same, but give a single emoji/sticker a new name |
 | `!steal :emoji:` | Mod | Add an emoji pasted straight into the command |
+| `!download` (as a reply, or with emoji) | Everyone | Post the emoji/stickers as image files anyone can save (10 per message, 10 s cooldown) |
 
 It reports how many slots are left, skips ones already in the server, and adds up
 to 10 at a time. Discord's own built-in stickers can't be copied. The bot needs
-the **Manage Expressions** permission. `!steal` is a text command only (not a
-slash command), because it works by replying to a message.
+the **Manage Expressions** permission (not needed for `!download`). Both are text
+commands only (not slash commands), because they work by replying to a message.
