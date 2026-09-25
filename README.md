@@ -187,6 +187,8 @@ work exactly like the `!` versions.
 | `/mute member [duration] [reason]` | `!mute` |
 | `/timeout member [duration] [reason]` | `!timeout` |
 | `/unmute member [reason]` | `!unmute` |
+| `/mutechannel member [duration] [reason]` | `!mutechannel` (this channel only) |
+| `/unmutechannel member [reason]` | `!unmutechannel` |
 | `/slow interval` | `!slowmode` |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's); reply only you see |
 

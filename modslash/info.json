@@ -2,7 +2,7 @@
     "author": ["marthomahew"],
     "name": "modslash",
     "short": "Slash command versions of Red's moderation commands.",
-    "description": "Adds /ban, /kick, /tempban, /softban, /unban, /warn, /warnings, /unwarn, /mute, /timeout, /unmute, /slow and /purge. Each runs Red's own Mod, Warnings or Mutes command underneath, so modlog cases, warnings and settings work exactly like the ! versions.",
+    "description": "Adds /ban, /kick, /tempban, /softban, /unban, /warn, /warnings, /unwarn, /mute, /timeout, /unmute, /mutechannel, /unmutechannel, /slow and /purge. Each runs Red's own Mod, Warnings or Mutes command underneath, so modlog cases, warnings and settings work exactly like the ! versions.",
     "install_msg": "Loaded? As bot owner run `[p]slash enablecog modslash` then `[p]slash sync`. Discord can take a minute to show the new commands.",
     "tags": ["moderation", "slash", "mod"],
     "min_bot_version": "3.5.0",

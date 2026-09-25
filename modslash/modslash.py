@@ -55,7 +55,8 @@ class ModSlash(commands.Cog):
         command = self.bot.get_command(command_name)
         if command is None or command.cog is None:
             cog = {"warn": "Warnings", "warnings": "Warnings", "unwarn": "Warnings",
-                   "mute": "Mutes", "unmute": "Mutes", "timeout": "Mutes"}.get(command_name, "Mod")
+                   "mute": "Mutes", "unmute": "Mutes", "timeout": "Mutes",
+                   "mutechannel": "Mutes", "unmutechannel": "Mutes"}.get(command_name, "Mod")
             await interaction.response.send_message(
                 f"That needs Red's **{cog}** cog, which isn't loaded (`!load {cog.lower()}`).", ephemeral=True
             )
@@ -251,6 +252,26 @@ class ModSlash(commands.Cog):
     @app_commands.default_permissions(moderate_members=True)
     async def unmute(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
         await self._run(interaction, "unmute", [member], reason=reason)
+
+    @app_commands.command(name="mutechannel", description="Mute a member in this channel only")
+    @app_commands.describe(member="Who to mute here", duration="How long, e.g. 10m, 2h, 1d (blank = default)", reason="Why")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_roles=True)
+    async def mutechannel(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        duration: Optional[str] = None,
+        reason: Optional[str] = None,
+    ):
+        await self._mute_like(interaction, "mutechannel", member, duration, reason)
+
+    @app_commands.command(name="unmutechannel", description="Unmute a member in this channel")
+    @app_commands.describe(member="Who to unmute here", reason="Why")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_roles=True)
+    async def unmutechannel(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
+        await self._run(interaction, "unmutechannel", [member], reason=reason)
 
     # ------------------------------------------------------------ purge
 
