@@ -81,10 +81,15 @@ class ModSlash(commands.Cog):
 
         ctx.send = tracked_send
 
+        # Announce the command like Red does for `!` commands, so loggers that
+        # listen for it (e.g. ExtendedModLog's "commands used" log) record it.
+        # discord.py also announces before checking permissions, so do the same.
+        self.bot.dispatch("command", ctx)
         try:
             if not await command.can_run(ctx):
                 raise commands.CheckFailure()
             await ctx.invoke(command, *args, **kwargs)
+            self.bot.dispatch("command_completion", ctx)
         except commands.CheckFailure as e:
             await ctx.send(str(e) or "You don't have permission to do that.")
         except commands.CommandError as e:
