@@ -17,10 +17,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Collection, Optional, Union
+from typing import Awaitable, Callable, Collection, Optional, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
@@ -38,6 +39,9 @@ DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 MAX_DAYS = 365
 TOP_N = 10
 MAX_AWARDS = 10
+# How many channels to read at once. Discord paces requests per channel, so
+# reading a few in parallel is much faster than one after another.
+SCAN_CONCURRENCY = 4
 # If the bot was offline at award time, still post if it's back within this long.
 # (Later than that, skip the week rather than announce Monday's awards on Wednesday.)
 LATE_GRACE = timedelta(hours=12)
@@ -126,6 +130,7 @@ class ReactKing(commands.Cog):
         )
         self._task: Optional[asyncio.Task] = None
         self._scan_lock = asyncio.Lock()  # one history scan at a time
+        self.last_scan: dict = {}  # stats from the most recent scan
 
     async def cog_load(self) -> None:
         self._task = asyncio.create_task(self._award_loop())
@@ -186,15 +191,29 @@ class ReactKing(commands.Cog):
         ]
 
     async def _count(
-        self, guild: discord.Guild, targets: list[Target], cutoff: datetime, only: Optional[discord.TextChannel] = None
+        self,
+        guild: discord.Guild,
+        targets: list[Target],
+        cutoff: datetime,
+        only: Optional[discord.TextChannel] = None,
+        progress: Optional[Callable[[int, int], Awaitable[None]]] = None,
     ) -> list[Tally]:
-        """Read history once and tally every target emoji. One Tally per target, same order."""
+        """Read history once and tally every target emoji. One Tally per target, same order.
+
+        `progress(done, total)` is called as channels finish. Stats about the scan
+        (messages read, reaction lookups, time taken) end up in self.last_scan.
+        """
         tallies = [Tally() for _ in targets]
         excluded = await self.config.guild(guild).excluded_channels()
-        async with self._scan_lock:
-            for chan in self._channels_to_scan(guild, only, excluded):
+        channels = self._channels_to_scan(guild, only, excluded)
+        stats = {"channels": len(channels), "done": 0, "messages": 0, "lookups": 0}
+        semaphore = asyncio.Semaphore(SCAN_CONCURRENCY)
+
+        async def scan(chan) -> None:
+            async with semaphore:
                 try:
                     async for message in chan.history(limit=None, after=cutoff):
+                        stats["messages"] += 1
                         if not message.reactions:
                             continue
                         owner = owner_id(message)
@@ -204,7 +223,9 @@ class ReactKing(commands.Cog):
                             reaction = next((r for r in message.reactions if self._matches(r, target)), None)
                             if reaction is None:
                                 continue
-                            # Count reactors one by one so self-reactions and bots can be left out.
+                            # Ask Discord who reacted, so self-reactions and bots can be left out.
+                            # (This lookup is the slow part of a scan.)
+                            stats["lookups"] += 1
                             count = 0
                             async for user in reaction.users():
                                 if not user.bot and user.id != owner:
@@ -215,8 +236,47 @@ class ReactKing(commands.Cog):
                                 if count > tally.best_by_owner.get(owner, (0, ""))[0]:
                                     tally.best_by_owner[owner] = (count, message.jump_url)
                 except discord.HTTPException as e:
-                    log.warning("Couldn't read history in #%s: %r", chan, e)
+                    log.warning("Couldn't read history in channel %s: %r", chan.id, e)
+            stats["done"] += 1
+            if progress:
+                try:
+                    await progress(stats["done"], stats["channels"])
+                except Exception:
+                    pass  # a progress update failing must never break the count
+
+        started = time.monotonic()
+        async with self._scan_lock:
+            await asyncio.gather(*(scan(chan) for chan in channels))
+        stats["seconds"] = time.monotonic() - started
+        self.last_scan = stats
+        log.info("Reaction scan in guild %s: %s", guild.id, stats)
         return tallies
+
+    @staticmethod
+    def _stats_text(stats: dict) -> str:
+        minutes, seconds = divmod(int(stats["seconds"]), 60)
+        took = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
+        return (f"Scanned {stats['messages']:,} messages in {stats['channels']} channels in {took} "
+                f"({stats['lookups']:,} reaction lookups)")
+
+    async def _progress_reporter(self, channel: discord.abc.Messageable):
+        """A "⏳ Counting…" message that updates as channels finish (at most every 5 s).
+        Returns (callback, cleanup)."""
+        message = await channel.send("⏳ Counting reactions…")
+        last_edit = [0.0]
+
+        async def update(done: int, total: int) -> None:
+            if time.monotonic() - last_edit[0] >= 5 and done < total:
+                last_edit[0] = time.monotonic()
+                await message.edit(content=f"⏳ Counting reactions… {done}/{total} channels done")
+
+        async def cleanup() -> None:
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                pass
+
+        return update, cleanup
 
     @staticmethod
     def _ranking_lines(
@@ -283,8 +343,11 @@ class ReactKing(commands.Cog):
             return
 
         await ctx.defer()
-        async with ctx.typing():
-            (tally,) = await self._count(ctx.guild, [target], datetime.now(timezone.utc) - delta, channel)
+        update, cleanup = await self._progress_reporter(ctx.channel)
+        try:
+            (tally,) = await self._count(ctx.guild, [target], datetime.now(timezone.utc) - delta, channel, update)
+        finally:
+            await cleanup()
 
         where = channel.mention if channel else "the whole server"
         if not tally.totals:
@@ -338,7 +401,12 @@ class ReactKing(commands.Cog):
         return last_scheduled(datetime.now(timezone.utc), conf["day"], hour, minute, tz)
 
     async def _post_awards(
-        self, guild: discord.Guild, conf: dict, mode: str = "scheduled", here: Optional[discord.abc.Messageable] = None
+        self,
+        guild: discord.Guild,
+        conf: dict,
+        mode: str = "scheduled",
+        here: Optional[discord.abc.Messageable] = None,
+        progress: Optional[Callable[[int, int], Awaitable[None]]] = None,
     ) -> Optional[str]:
         """Count the past week and post the results. Returns an error message, or None.
 
@@ -358,7 +426,9 @@ class ReactKing(commands.Cog):
 
         awards = [(self._resolve_emoji(guild, a["emoji"]), a.get("role_id")) for a in conf["awards"]]
         awards = [(t, r) for t, r in awards if t is not None]
-        tallies = await self._count(guild, [t for t, _ in awards], datetime.now(timezone.utc) - timedelta(days=7))
+        tallies = await self._count(
+            guild, [t for t, _ in awards], datetime.now(timezone.utc) - timedelta(days=7), progress=progress
+        )
 
         # Admins and mods can't win (but their reactions still count for others).
         everyone = {member for tally in tallies for member in tally.totals}
@@ -422,10 +492,11 @@ class ReactKing(commands.Cog):
             content = "Congrats " + ", ".join(f"<@{w}>" for w in sorted(winners)) + "! 👑" if winners else None
             mentions = discord.AllowedMentions(users=True, roles=False, everyone=False)
         elif mode == "testrun":
-            content = "-# Test run: roles were given/removed for real. Nobody pinged, nothing posted publicly."
+            content = ("-# Test run: roles were given/removed for real. Nobody pinged, nothing posted publicly.\n"
+                       f"-# {self._stats_text(self.last_scan)}")
             mentions = discord.AllowedMentions.none()
         else:
-            content = "-# Preview: no roles given, nobody pinged."
+            content = f"-# Preview: no roles given, nobody pinged.\n-# {self._stats_text(self.last_scan)}"
             mentions = discord.AllowedMentions.none()
         try:
             await channel.send(content=content, embed=embed, allowed_mentions=mentions)
@@ -624,8 +695,11 @@ class ReactKing(commands.Cog):
         if not conf["awards"]:
             await ctx.send("Add an award first, e.g. `!awards add :kek:`.")
             return
-        async with ctx.typing():
-            error = await self._post_awards(ctx.guild, conf, mode="preview", here=ctx.channel)
+        update, cleanup = await self._progress_reporter(ctx.channel)
+        try:
+            error = await self._post_awards(ctx.guild, conf, mode="preview", here=ctx.channel, progress=update)
+        finally:
+            await cleanup()
         if error:
             await ctx.send(error)
 
@@ -641,8 +715,11 @@ class ReactKing(commands.Cog):
         if not conf["awards"]:
             await ctx.send("Add an award first, e.g. `!awards add :kek:`.")
             return
-        async with ctx.typing():
-            error = await self._post_awards(ctx.guild, conf, mode="testrun", here=ctx.channel)
+        update, cleanup = await self._progress_reporter(ctx.channel)
+        try:
+            error = await self._post_awards(ctx.guild, conf, mode="testrun", here=ctx.channel, progress=update)
+        finally:
+            await cleanup()
         if error:
             await ctx.send(error)
 
