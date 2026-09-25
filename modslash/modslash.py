@@ -22,6 +22,7 @@ from discord import app_commands
 from redbot.core import commands
 from redbot.core.bot import Red
 from redbot.core.commands.converter import parse_timedelta
+from redbot.core.utils.chat_formatting import pagify
 
 log = logging.getLogger("red.refbot.modslash")
 
@@ -68,6 +69,9 @@ class ModSlash(commands.Cog):
         ctx = await self.bot.get_context(interaction)
         ctx.command = command
         ctx.invoked_with = command.name
+        ctx.modslash = True  # lets the Mutes patch below recognise our slash commands
+        if command.cog.qualified_name == "Mutes":
+            self._patch_mute_issues(command.cog)
 
         # Red commands often confirm with a ✅ reaction on the command message.
         # A slash command has no real message, so that silently does nothing.
@@ -102,6 +106,26 @@ class ModSlash(commands.Cog):
             await ctx.send("Something went wrong running that. It's in the bot's log.")
         if not replied:
             await ctx.send("✅ Done.")
+
+    @staticmethod
+    def _patch_mute_issues(mutes) -> None:
+        """When a mute partly fails, Red asks "see who, where and why?" and waits
+        for a ✅/❎ reaction. Private (ephemeral) replies can't have reactions, so
+        for our slash commands, skip the question and just show the details.
+        `!mute` is untouched. Re-applied if the Mutes cog is reloaded."""
+        if getattr(mutes, "_modslash_patched", False):
+            return
+        original = mutes.handle_issues
+
+        async def handle_issues(ctx, issue_list):
+            if not getattr(ctx, "modslash", False):
+                return await original(ctx, issue_list)
+            await ctx.send("Some users couldn't be fully muted or unmuted:")
+            for page in pagify(mutes.parse_issues(issue_list)):
+                await ctx.send(page)
+
+        mutes.handle_issues = handle_issues
+        mutes._modslash_patched = True
 
     # ------------------------------------------------------------ Mod cog
 
