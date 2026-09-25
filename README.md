@@ -189,7 +189,7 @@ work exactly like the `!` versions.
 | `/unmute member [reason]` | `!unmute` |
 | `/mutechannel member [duration] [reason]` | `!mutechannel` (this channel only) |
 | `/unmutechannel member [reason]` | `!unmutechannel` |
-| `/slow interval` | `!slowmode` |
+| `/slowmode interval` | `!slowmode` |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's); reply only you see |
 
 Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog

@@ -166,11 +166,11 @@ class ModSlash(commands.Cog):
             return
         await self._run(interaction, "unban", int(user_id.strip()), reason=reason)
 
-    @app_commands.command(name="slow", description="Set slowmode in this channel")
+    @app_commands.command(name="slowmode", description="Set slowmode in this channel")
     @app_commands.describe(interval="Time between messages, e.g. 30s, 5m, 1h (0 turns it off, max 6h)")
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_channels=True)
-    async def slow(self, interaction: discord.Interaction, interval: str):
+    async def slowmode(self, interaction: discord.Interaction, interval: str):
         try:
             length = to_timedelta(interval, maximum=timedelta(hours=6)) or timedelta(0)
         except commands.BadArgument as e:
