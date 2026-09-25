@@ -111,7 +111,7 @@ class ReactKing(commands.Cog):
         self.config.register_guild(
             awards_channel=None,
             mod_channel=None,  # private channel for full results (staff included)
-            overall=False,  # also crown an overall "Emoji King" (all award emotes combined)
+            overall=False,  # also crown an overall "React King" (all award emotes combined)
             overall_role_id=None,
             # [{"emoji": "<:kek:123>" or "😂", "role_id": int or None}, ...]
             awards=[],
@@ -374,7 +374,7 @@ class ReactKing(commands.Cog):
                 if note:
                     role_notes.append(note)
 
-        # Overall Emoji King: all award emotes added together. Goes at the top.
+        # Overall React King: all award emotes added together. Goes at the top.
         if conf.get("overall") and tallies:
             overall = Tally()
             for tally in tallies:
@@ -388,7 +388,7 @@ class ReactKing(commands.Cog):
             kings = [m for m, c in ranking if c == ranking[0][1]] if ranking else []
             winners.update(kings)
             embed.insert_field_at(
-                0, name="👑 Emoji King", inline=False,
+                0, name="👑 React King", inline=False,
                 value="\n".join(self._ranking_lines(overall, "total", 3, exclude=staff)) or "Nobody this week.",
             )
             if give_roles and conf.get("overall_role_id"):
@@ -564,7 +564,7 @@ class ReactKing(commands.Cog):
             lines.append("none yet, add one with `!awards add :kek:`")
         if conf["overall"]:
             role = ctx.guild.get_role(conf["overall_role_id"]) if conf["overall_role_id"] else None
-            lines.append("👑 Overall Emoji King" + (f" → {role.mention}" if role else ""))
+            lines.append("👑 Overall React King" + (f" → {role.mention}" if role else ""))
         if any(a.get("role_id") for a in conf["awards"]) and not ctx.guild.me.guild_permissions.manage_roles:
             lines.append("⚠️ I need **Manage Roles** to hand out award roles.")
         await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
@@ -605,11 +605,11 @@ class ReactKing(commands.Cog):
 
     @awards.command(name="overall")
     async def awards_overall(self, ctx: commands.Context, state: str, role: Optional[discord.Role] = None):
-        """Overall Emoji King (all award emotes combined): `overall on @role` or `overall off`."""
+        """Overall React King (all award emotes combined): `overall on @role` or `overall off`."""
         conf = self.config.guild(ctx.guild)
         if state.lower() == "off":
             await conf.overall.set(False)
-            await ctx.send("Overall Emoji King is off.")
+            await ctx.send("Overall React King is off.")
             return
         if state.lower() != "on":
             await ctx.send("Use `!awards overall on @role` (role optional) or `!awards overall off`.")
@@ -621,4 +621,4 @@ class ReactKing(commands.Cog):
         await conf.overall.set(True)
         await conf.overall_role_id.set(role.id if role else None)
         extra = f" The winner gets {role.mention}." if role else ""
-        await ctx.send(f"Overall Emoji King is on.{extra}", allowed_mentions=discord.AllowedMentions.none())
+        await ctx.send(f"Overall React King is on.{extra}", allowed_mentions=discord.AllowedMentions.none())

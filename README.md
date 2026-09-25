@@ -139,7 +139,7 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 | `!awards time <day> <HH:MM> [timezone]` | Admin | When to post, e.g. `mon 12:00 America/Chicago` |
 | `!awards toggle` | Admin | Turn weekly awards on/off |
 | `!awards list` | Admin | Show award settings |
-| `!awards overall on [@role]` / `off` | Admin | Also crown an overall Emoji King (all award emotes combined) |
+| `!awards overall on [@role]` / `off` | Admin | Also crown an overall React King (all award emotes combined) |
 | `!awards preview` | Admin | Post this week's results here now as a test (no roles, no pings) |
 | `!awards testrun` | Admin | Like preview, but gives/removes award roles for real (still no pings, nothing public) |
 
