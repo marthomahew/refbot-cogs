@@ -397,7 +397,10 @@ class ModSlash(commands.Cog):
 
     # ------------------------------------------------------------ report reaction
 
-    REVIEW_NOTE = "🚩 Reported to the mods. Don't click any links in this message."
+    # Public note on a reported message. New accounts get the cautionary one
+    # (spam bots asking people to friend/DM them); nobody established is labelled.
+    REVIEW_NOTE = "🚩 Reported to the mods."
+    REVIEW_NOTE_NEW_ACCOUNT = "⚠️ Reported to the mods. Treat with caution."
     REMOVED_NOTE = "🧹 Removed after multiple reports."
 
     @commands.Cog.listener()
@@ -453,7 +456,7 @@ class ModSlash(commands.Cog):
         else:
             log.info("Ignored report reaction from new member %s (Defender rank %s)", member.id, rank)
             return
-        await self._mark_under_review(message)
+        await self._mark_under_review(message, await self._author_is_new(defender, message))
         await self._maybe_auto_hide(defender, message, conf["auto_hide_threshold"])
 
     @staticmethod
@@ -466,14 +469,28 @@ class ModSlash(commands.Cog):
             return strip(emoji.name) == strip(conf["report_emoji_unicode"])
         return False
 
-    async def _mark_under_review(self, message: discord.Message) -> None:
+    @staticmethod
+    async def _author_is_new(defender, message: discord.Message) -> bool:
+        """Is this message from a new account (Defender Rank 3-4, or someone who
+        already left)? Used for the cautionary note and for auto-hide.
+        Link reposts (webhooks) and bots never count as new accounts."""
+        if message.webhook_id is not None or message.author.bot:
+            return False
+        author = message.guild.get_member(message.author.id)
+        if author is None:
+            return True  # already left the server: typical of spam bots
+        return int(await defender.rank_user(author)) >= 3
+
+    async def _mark_under_review(self, message: discord.Message, new_account: bool) -> None:
         """Reply once to the reported message so everyone (including the reporter)
         can see it's being looked at."""
         if message.id in self._review_notes:
             return
         try:
             self._review_notes[message.id] = await message.reply(
-                self.REVIEW_NOTE, mention_author=False, allowed_mentions=discord.AllowedMentions.none()
+                self.REVIEW_NOTE_NEW_ACCOUNT if new_account else self.REVIEW_NOTE,
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
             )
         except discord.HTTPException as e:
             log.warning("Couldn't post the review note in #%s: %r", message.channel, e)
@@ -484,12 +501,8 @@ class ModSlash(commands.Cog):
         reporters = self._reporters.get(message.id, set())
         if not threshold or len(reporters) < threshold:
             return
-        if message.webhook_id is not None or message.author.bot:
-            return  # link reposts and bots: report only, never auto-hide
-        author = message.guild.get_member(message.author.id)
-        # Someone who already left the server can't be a regular; otherwise ask Defender.
-        if author is not None and int(await defender.rank_user(author)) <= 2:
-            return
+        if not await self._author_is_new(defender, message):
+            return  # established members, link reposts and bots: report only, never auto-hide
         try:
             await message.delete()
         except discord.HTTPException as e:

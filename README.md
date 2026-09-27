@@ -201,8 +201,9 @@ removes the reaction at once, then, by the reactor's Defender rank:
 Rank 1 (mods, Defender helper/trusted roles) sends Defender's full alert, like
 `/alert`; Rank 2 (established members) sends a quiet "member report" to
 Defender's notify channel with no ping (one per message every 6 hours); Rank 3-4
-(new members) is ignored. A reported message gets one public reply, "🚩 Reported
-to the mods. Don't click any links in this message." (never says who reported).
+(new members) is ignored. A reported message gets one public reply (never says who
+reported): "⚠️ Reported to the mods. Treat with caution." if the author is a new
+account (Rank 3-4 or already left), otherwise "🚩 Reported to the mods."
 
 **Auto-hide (spam):** once 3 different members (Rank 2+, not blocked) report a
 message *from a new account* (Defender Rank 3-4, or someone who already left),
