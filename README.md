@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash
-!load scoreboard embedfix emotesteal reactking modslash
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme
+!load scoreboard embedfix emotesteal reactking modslash remindme
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking modslash
+!reload scoreboard embedfix emotesteal reactking modslash remindme
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -218,3 +218,22 @@ modslash`, then `!slash sync`. Discord hides each command from members without
 the matching Discord permission (e.g. Ban Members for `/ban`); change who sees
 them in Server Settings → Integrations → the bot. Red's own mod/admin role
 checks still apply either way.
+
+## remindme
+
+Reminders that come back as a reply in the same channel, pinging you.
+
+| How | What happens |
+| --- | --- |
+| `!remindme 2h check the injury report` | ✅ on your message; the reminder replies to it |
+| `!remindme 1d` sent as a reply | the reminder replies to the message you replied to |
+| `!remindme` (nothing else) | a "⏰ Set a reminder" button (only you can use it, gone after 30 s) opens a form |
+| `/remindme when what` | posts "⏰ You set a reminder · in 2 hours" + the note; the reminder replies to that |
+| Right-click a message → Apps → **Remind me about this** | a form; the reminder replies to that message |
+| `!reminders` / `!reminders cancel <number>` | list / cancel your reminders (private with slash) |
+
+Times are lengths: `30m`, `2h`, `3d`, `1w`, `2h30m` (a bare number = minutes), up
+to a year. Up to 25 active reminders per person. If the original message was
+deleted, the reminder posts in the channel instead. Setup (bot owner):
+`!slash enable remindme`, `!slash enable reminders`,
+`!slash enable "Remind me about this" message`, then `!slash sync`.

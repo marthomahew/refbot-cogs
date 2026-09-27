@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "remindme",
+    "short": "Reminders that come back as a reply in the same channel.",
+    "description": "Set reminders with /remindme, !remindme 2h note (or as a reply to a message), a bare !remindme (opens a form), or right-click a message → Apps → Remind me about this. The reminder replies to the original message in the same channel.",
+    "install_msg": "Loaded? As bot owner: `[p]slash enable remindme`, `[p]slash enable reminders`, `[p]slash enable \"Remind me about this\" message`, then `[p]slash sync`.",
+    "tags": ["reminders", "remindme", "utility"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog stores reminders you set (your user ID, the channel, the message it replies to, the time and your note) until they fire. Red's data deletion removes them."
+}
