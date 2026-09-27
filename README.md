@@ -200,8 +200,10 @@ removes the reaction at once, then, by the reactor's Defender rank:
 Rank 1 (mods, Defender helper/trusted roles) sends Defender's full alert, like
 `/alert`; Rank 2 (established members) sends a quiet "member report" to
 Defender's notify channel with no ping (one per message every 6 hours); Rank 3-4
-(new members) is ignored. Reporters get a DM confirmation if their DMs are open.
-`!reportset show` shows the settings.
+(new members) is ignored. A reported message gets one public reply, "🚩 This
+message has been reported and is being reviewed by the mods." (never says who
+reported). `!reportset block @user` ignores someone's reports after false reports
+(`unblock` to undo); `!reportset show` shows the settings.
 
 All replies are private ("Only you can see this"); modlog and log channels still record everything. Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
 modslash`, then `!slash sync`. Discord hides each command from members without

@@ -60,7 +60,9 @@ class ModSlash(commands.Cog):
         self.config.register_guild(
             report_enabled=False,
             report_emoji_id=None,  # a custom server emoji; reacting with it reports the message
+            report_blocked=[],  # member ids whose report reactions are ignored (false reporters)
         )
+        self._reviewed: set[int] = set()  # messages that already got the "being reviewed" reply
 
     async def cog_load(self) -> None:
         self.bot.tree.add_command(self.alert_menu)
@@ -68,9 +70,13 @@ class ModSlash(commands.Cog):
     async def cog_unload(self) -> None:
         self.bot.tree.remove_command(self.alert_menu.name, type=self.alert_menu.type)
 
-    async def red_delete_data_for_user(self, **kwargs) -> None:
-        # Stores nothing; the underlying Red cogs manage their own data.
-        return
+    async def red_delete_data_for_user(self, *, requester, user_id: int) -> None:
+        # The only user data here is the report block list (member IDs).
+        # (The underlying Red cogs manage their own data.)
+        for guild_id, conf in (await self.config.all_guilds()).items():
+            if user_id in conf.get("report_blocked", []):
+                async with self.config.guild_from_id(guild_id).report_blocked() as blocked:
+                    blocked.remove(user_id)
 
     async def _run(
         self,
@@ -385,6 +391,8 @@ class ModSlash(commands.Cog):
 
     # ------------------------------------------------------------ report reaction
 
+    REVIEW_NOTE = "🚩 This message has been reported and is being reviewed by the mods."
+
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         """Reacting with the report emoji reports that message, based on Defender rank:
@@ -392,8 +400,9 @@ class ModSlash(commands.Cog):
         Rank 1 (mods, Defender helper/trusted roles): Defender's full alert, like /alert.
         Rank 2 (established members): a quiet "member report" to Defender's notify
                 channel, no staff ping, no emergency mode.
-        Rank 3-4 (recent joins / new accounts): ignored, so raiders can't spam reports.
-        The reaction is always removed right away so the reported person never sees it.
+        Rank 3-4 (recent joins / new accounts) and blocked members: ignored.
+        The reaction is removed right away. A reported message gets one public
+        reply saying it's being reviewed (it never says who reported it).
         """
         if payload.guild_id is None or payload.emoji.id is None or payload.member is None:
             return
@@ -415,32 +424,47 @@ class ModSlash(commands.Cog):
             return
         member = payload.member
 
-        # Take the reaction off first, so the reported person never sees it.
+        # Take the reaction off first, so nobody sees who reported.
         try:
             await message.remove_reaction(payload.emoji, member)
         except discord.HTTPException:
             log.warning("Couldn't remove a report reaction in #%s (needs Manage Messages)", channel)
 
+        if member.id in conf["report_blocked"]:
+            log.info("Ignored report reaction from blocked member %s", member.id)
+            return
         rank = int(await defender.rank_user(member))
         if rank == 1:
-            await self._reaction_alert(member, message)
+            if not await self._reaction_alert(member, message):
+                # Alert on cooldown (staff were pinged about this channel moments
+                # ago): still flag this message, quietly.
+                await self._member_report(defender, member, message, note="Raised while an alert was already active")
         elif rank == 2:
             await self._member_report(defender, member, message)
         else:
             log.info("Ignored report reaction from new member %s (Defender rank %s)", member.id, rank)
+            return
+        await self._mark_under_review(message)
 
-    async def _dm(self, member: discord.Member, text: str) -> None:
-        """Quiet confirmation for reaction reports (a reaction has no private reply)."""
+    async def _mark_under_review(self, message: discord.Message) -> None:
+        """Reply once to the reported message so everyone (including the reporter)
+        can see it's being looked at."""
+        if message.id in self._reviewed:
+            return
+        self._reviewed.add(message.id)
         try:
-            await member.send(text)
-        except discord.HTTPException:
-            pass  # DMs closed; the report still went through
+            await message.reply(
+                self.REVIEW_NOTE, mention_author=False, allowed_mentions=discord.AllowedMentions.none()
+            )
+        except discord.HTTPException as e:
+            log.warning("Couldn't post the review note in #%s: %r", message.channel, e)
 
-    async def _reaction_alert(self, member: discord.Member, message: discord.Message) -> None:
-        """Run Defender's own alert command, as if `member` used it on `message`."""
+    async def _reaction_alert(self, member: discord.Member, message: discord.Message) -> bool:
+        """Run Defender's own alert command, as if `member` used it on `message`.
+        Returns False if it didn't go out (e.g. the channel's alert cooldown)."""
         command = self.bot.get_command("alert")
         if command is None or command.cog is None:
-            return
+            return False
         # A stand-in for the command message: the reported message, credited to
         # the person reporting it, so Defender's "Click to jump" goes to it.
         stand_in = copy(message)
@@ -450,46 +474,51 @@ class ModSlash(commands.Cog):
         ctx.command = command
         ctx.invoked_with = command.name
 
-        # Defender replies in the channel; send those replies to the reporter's DMs instead.
-        async def dm_send(content=None, **kwargs):
-            if content:
-                await self._dm(member, f"{content}\n-# (about your report in #{message.channel})")
+        # Defender would reply in the channel ("staff has been notified"); the
+        # public review note replaces that, so swallow its replies.
+        async def quiet_send(*args, **kwargs):
+            return None
 
-        ctx.send = dm_send
+        ctx.send = quiet_send
         self.bot.dispatch("command", ctx)
         try:
             if not await command.can_run(ctx):
-                return
+                return False
             command._prepare_cooldowns(ctx)
             await ctx.invoke(command)
             self.bot.dispatch("command_completion", ctx)
+            return True
         except commands.CommandOnCooldown:
-            await self._dm(member, "Staff were alerted about that channel moments ago, so they're already on it.")
+            return False
         except commands.CommandError as e:
             log.info("Reaction alert refused for %s: %r", member.id, e)
+            return False
         except Exception:
             log.exception("Reaction alert failed")
+            return False
 
-    async def _member_report(self, defender, member: discord.Member, message: discord.Message) -> None:
+    async def _member_report(self, defender, member: discord.Member, message: discord.Message, note: str = "") -> None:
         """A quiet report to Defender's notify channel (no staff ping)."""
         text = message.content or "(no text; attachment or embed)"
+        fields = [
+            {"name": "Reporter", "value": f"`{member}` ({member.id})"},
+            {"name": "Reported user", "value": f"`{message.author}` ({message.author.id})"},
+            # Kept in the report in case the message gets deleted.
+            {"name": "Message", "value": text[:1000], "inline": False},
+        ]
+        if note:
+            fields.append({"name": "Note", "value": note, "inline": False})
         await defender.send_notification(
             member.guild,
             f"{member.mention} reported a message by {message.author.mention} in {message.channel.mention}.",
             title="📣 • Member report",
-            fields=[
-                {"name": "Reporter", "value": f"`{member}` ({member.id})"},
-                {"name": "Reported user", "value": f"`{message.author}` ({message.author.id})"},
-                # Kept in the report in case the message gets deleted.
-                {"name": "Message", "value": text[:1000], "inline": False},
-            ],
+            fields=fields,
             ping=False,
             jump_to=message,
             # One report per message every 6 hours, however many people react.
             heat_key=f"modslash-report-{message.id}",
             no_repeat_for=timedelta(hours=6),
         )
-        await self._dm(member, "Thanks, the mods have been told about that message.")
 
     @commands.group(name="reportset")
     @commands.guild_only()
@@ -520,16 +549,37 @@ class ModSlash(commands.Cog):
             warning = "\n⚠️ Defender isn't loaded, so reports won't go anywhere until it is."
         await ctx.send(f"Report reaction is now **{'on' if enabled else 'off'}**.{warning}")
 
+    @reportset.command(name="block")
+    async def reportset_block(self, ctx: commands.Context, member: discord.Member):
+        """Ignore someone's report reactions (e.g. after false reports)."""
+        async with self.config.guild(ctx.guild).report_blocked() as blocked:
+            if member.id not in blocked:
+                blocked.append(member.id)
+        await ctx.send(f"{member.mention}'s report reactions will be ignored.",
+                       allowed_mentions=discord.AllowedMentions.none())
+
+    @reportset.command(name="unblock")
+    async def reportset_unblock(self, ctx: commands.Context, member: discord.Member):
+        """Let someone report again."""
+        async with self.config.guild(ctx.guild).report_blocked() as blocked:
+            if member.id in blocked:
+                blocked.remove(member.id)
+        await ctx.send(f"{member.mention} can report again.", allowed_mentions=discord.AllowedMentions.none())
+
     @reportset.command(name="show")
     async def reportset_show(self, ctx: commands.Context):
         """Show the report reaction settings."""
         conf = await self.config.guild(ctx.guild).all()
         emoji = self.bot.get_emoji(conf["report_emoji_id"]) if conf["report_emoji_id"] else None
+        blocked = ", ".join(f"<@{i}>" for i in conf["report_blocked"]) or "nobody"
         await ctx.send(
             f"**Report reaction:** {'on' if conf['report_enabled'] else 'off'}\n"
             f"**Emoji:** {emoji or 'not set'}\n"
+            f"**Blocked from reporting:** {blocked}\n"
             "**What it does (by Defender rank):** Rank 1 (mods, helpers, trusted) = full alert · "
-            "Rank 2 (established members) = quiet report · Rank 3-4 (new) = ignored"
+            "Rank 2 (established members) = quiet report · Rank 3-4 (new) = ignored. "
+            "Reported messages get a public \"being reviewed\" reply.",
+            allowed_mentions=discord.AllowedMentions.none(),
         )
 
     # ------------------------------------------------------------ purge

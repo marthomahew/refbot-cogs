@@ -9,5 +9,5 @@
     "min_python_version": [3, 11, 0],
     "requirements": [],
     "type": "COG",
-    "end_user_data_statement": "This cog does not store any end user data."
+    "end_user_data_statement": "This cog stores the IDs of members blocked from using the report reaction. Red's data deletion removes them."
 }
