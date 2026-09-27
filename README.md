@@ -190,6 +190,7 @@ work exactly like the `!` versions.
 | `/mutechannel member [duration] [reason]` | `!mutechannel` (this channel only) |
 | `/unmutechannel member [reason]` | `!unmutechannel` |
 | `/slowmode interval` | `!slowmode` |
+| `/alert` | Defender's `!alert`: pings staff (helper roles like Assistant Coach, or mods). Once per channel every 2 minutes |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's) |
 
 All replies are private ("Only you can see this"); modlog and log channels still record everything. Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog

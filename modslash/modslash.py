@@ -14,8 +14,9 @@ Settings → Integrations → the bot.
 from __future__ import annotations
 
 import logging
+from copy import copy
 from datetime import timedelta
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import discord
 from discord import app_commands
@@ -51,13 +52,24 @@ class ModSlash(commands.Cog):
         # Stores nothing; the underlying Red cogs manage their own data.
         return
 
-    async def _run(self, interaction: discord.Interaction, command_name: str, *args, **kwargs) -> None:
-        """Run an existing Red text command on behalf of a slash command."""
+    async def _run(
+        self,
+        interaction: discord.Interaction,
+        command_name: str,
+        *args,
+        prepare: Optional[Callable[[commands.Context], Awaitable[None]]] = None,
+        **kwargs,
+    ) -> None:
+        """Run an existing Red text command on behalf of a slash command.
+
+        `prepare(ctx)` can adjust the context first (used by /alert).
+        """
         command = self.bot.get_command(command_name)
         if command is None or command.cog is None:
             cog = {"warn": "Warnings", "warnings": "Warnings", "unwarn": "Warnings",
                    "mute": "Mutes", "unmute": "Mutes", "timeout": "Mutes",
-                   "mutechannel": "Mutes", "unmutechannel": "Mutes"}.get(command_name, "Mod")
+                   "mutechannel": "Mutes", "unmutechannel": "Mutes",
+                   "alert": "Defender"}.get(command_name, "Mod")
             await interaction.response.send_message(
                 f"That needs Red's **{cog}** cog, which isn't loaded (`!load {cog.lower()}`).", ephemeral=True
             )
@@ -70,6 +82,8 @@ class ModSlash(commands.Cog):
         ctx.command = command
         ctx.invoked_with = command.name
         ctx.modslash = True  # lets the Mutes patch below recognise our slash commands
+        if prepare is not None:
+            await prepare(ctx)
         if command.cog.qualified_name == "Mutes":
             self._patch_mute_issues(command.cog)
 
@@ -95,6 +109,9 @@ class ModSlash(commands.Cog):
         try:
             if not await command.can_run(ctx):
                 raise commands.CheckFailure()
+            # Respect the command's cooldown like `!` does (e.g. !alert: once per
+            # channel every 2 minutes). Running a command from code skips it otherwise.
+            command._prepare_cooldowns(ctx)
             await ctx.invoke(command, *args, **kwargs)
             self.bot.dispatch("command_completion", ctx)
         except commands.CheckFailure as e:
@@ -311,6 +328,29 @@ class ModSlash(commands.Cog):
     @app_commands.default_permissions(manage_roles=True)
     async def unmutechannel(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
         await self._run(interaction, "unmutechannel", [member], reason=reason)
+
+    # ------------------------------------------------------------ Defender
+
+    @app_commands.command(name="alert", description="Alert the staff (Defender)")
+    @app_commands.guild_only()
+    async def alert(self, interaction: discord.Interaction):
+        # No default_permissions: Defender's helper role (e.g. Assistant Coach)
+        # usually has no mod permissions. Defender itself checks who's allowed.
+
+        async def point_at_latest_message(ctx: commands.Context) -> None:
+            # Defender's alert includes a "Click to jump" link to the command
+            # message. A slash command has none, so link to the latest real
+            # message in the channel instead, credited to the person alerting.
+            try:
+                latest = [m async for m in interaction.channel.history(limit=1)]
+            except discord.HTTPException:
+                return
+            if latest:
+                stand_in = copy(latest[0])
+                stand_in.author = interaction.user
+                ctx.message = stand_in
+
+        await self._run(interaction, "alert", prepare=point_at_latest_message)
 
     # ------------------------------------------------------------ purge
 
