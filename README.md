@@ -194,6 +194,15 @@ work exactly like the `!` versions.
 | Right-click a message → Apps → **Alert staff** | Same as `/alert`, but the staff ping links to that exact message. Enable with `!slash enable "Alert staff" message` |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's) |
 
+**Report reaction (needs Defender):** react to a message with the server's report
+emoji (set with `!reportset emoji :emoji:`, then `!reportset toggle`). The bot
+removes the reaction at once, then, by the reactor's Defender rank:
+Rank 1 (mods, Defender helper/trusted roles) sends Defender's full alert, like
+`/alert`; Rank 2 (established members) sends a quiet "member report" to
+Defender's notify channel with no ping (one per message every 6 hours); Rank 3-4
+(new members) is ignored. Reporters get a DM confirmation if their DMs are open.
+`!reportset show` shows the settings.
+
 All replies are private ("Only you can see this"); modlog and log channels still record everything. Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
 modslash`, then `!slash sync`. Discord hides each command from members without
 the matching Discord permission (e.g. Ban Members for `/ban`); change who sees

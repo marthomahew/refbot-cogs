@@ -5,6 +5,10 @@ slash command here runs the *same* Red command underneath, so modlog cases,
 warning points, mute settings, DMs and permissions all behave exactly like the
 `!` version. Only `/purge` is written directly (see `purge` for why).
 
+Also bridges Defender (x26-Cogs): `/alert`, a right-click "Alert staff" app,
+and a report reaction (a custom emoji) whose effect depends on the reactor's
+Defender rank.
+
 Who can use them: Red's own checks (mod/admin roles or Discord permissions)
 decide, same as `!`. Discord also hides each command from members without a
 matching permission; server admins can change who sees them in Server
@@ -20,7 +24,7 @@ from typing import Awaitable, Callable, Optional
 
 import discord
 from discord import app_commands
-from redbot.core import commands
+from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.commands.converter import parse_timedelta
 from redbot.core.utils.chat_formatting import pagify
@@ -52,6 +56,11 @@ class ModSlash(commands.Cog):
         # and added to the bot in cog_load.
         self.alert_menu = app_commands.ContextMenu(name="Alert staff", callback=self.alert_from_message)
         self.alert_menu.guild_only = True
+        self.config = Config.get_conf(self, identifier=0x5C0BE0A2D5, force_registration=True)
+        self.config.register_guild(
+            report_enabled=False,
+            report_emoji_id=None,  # a custom server emoji; reacting with it reports the message
+        )
 
     async def cog_load(self) -> None:
         self.bot.tree.add_command(self.alert_menu)
@@ -373,6 +382,155 @@ class ModSlash(commands.Cog):
     async def alert_from_message(self, interaction: discord.Interaction, message: discord.Message):
         """Right-click → Apps → Alert staff: the alert links to that exact message."""
         await self._alert_about(interaction, message)
+
+    # ------------------------------------------------------------ report reaction
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """Reacting with the report emoji reports that message, based on Defender rank:
+
+        Rank 1 (mods, Defender helper/trusted roles): Defender's full alert, like /alert.
+        Rank 2 (established members): a quiet "member report" to Defender's notify
+                channel, no staff ping, no emergency mode.
+        Rank 3-4 (recent joins / new accounts): ignored, so raiders can't spam reports.
+        The reaction is always removed right away so the reported person never sees it.
+        """
+        if payload.guild_id is None or payload.emoji.id is None or payload.member is None:
+            return
+        if payload.member.bot:
+            return
+        conf = await self.config.guild_from_id(payload.guild_id).all()
+        if not conf["report_enabled"] or payload.emoji.id != conf["report_emoji_id"]:
+            return
+        guild = payload.member.guild
+        if await self.bot.cog_disabled_in_guild(self, guild):
+            return
+        defender = self.bot.get_cog("Defender")
+        channel = guild.get_channel_or_thread(payload.channel_id)
+        if defender is None or channel is None:
+            return
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            return
+        member = payload.member
+
+        # Take the reaction off first, so the reported person never sees it.
+        try:
+            await message.remove_reaction(payload.emoji, member)
+        except discord.HTTPException:
+            log.warning("Couldn't remove a report reaction in #%s (needs Manage Messages)", channel)
+
+        rank = int(await defender.rank_user(member))
+        if rank == 1:
+            await self._reaction_alert(member, message)
+        elif rank == 2:
+            await self._member_report(defender, member, message)
+        else:
+            log.info("Ignored report reaction from new member %s (Defender rank %s)", member.id, rank)
+
+    async def _dm(self, member: discord.Member, text: str) -> None:
+        """Quiet confirmation for reaction reports (a reaction has no private reply)."""
+        try:
+            await member.send(text)
+        except discord.HTTPException:
+            pass  # DMs closed; the report still went through
+
+    async def _reaction_alert(self, member: discord.Member, message: discord.Message) -> None:
+        """Run Defender's own alert command, as if `member` used it on `message`."""
+        command = self.bot.get_command("alert")
+        if command is None or command.cog is None:
+            return
+        # A stand-in for the command message: the reported message, credited to
+        # the person reporting it, so Defender's "Click to jump" goes to it.
+        stand_in = copy(message)
+        stand_in.author = member
+        stand_in.content = "[report reaction]"  # what command loggers show instead of the reported text
+        ctx = await self.bot.get_context(stand_in)
+        ctx.command = command
+        ctx.invoked_with = command.name
+
+        # Defender replies in the channel; send those replies to the reporter's DMs instead.
+        async def dm_send(content=None, **kwargs):
+            if content:
+                await self._dm(member, f"{content}\n-# (about your report in #{message.channel})")
+
+        ctx.send = dm_send
+        self.bot.dispatch("command", ctx)
+        try:
+            if not await command.can_run(ctx):
+                return
+            command._prepare_cooldowns(ctx)
+            await ctx.invoke(command)
+            self.bot.dispatch("command_completion", ctx)
+        except commands.CommandOnCooldown:
+            await self._dm(member, "Staff were alerted about that channel moments ago, so they're already on it.")
+        except commands.CommandError as e:
+            log.info("Reaction alert refused for %s: %r", member.id, e)
+        except Exception:
+            log.exception("Reaction alert failed")
+
+    async def _member_report(self, defender, member: discord.Member, message: discord.Message) -> None:
+        """A quiet report to Defender's notify channel (no staff ping)."""
+        text = message.content or "(no text; attachment or embed)"
+        await defender.send_notification(
+            member.guild,
+            f"{member.mention} reported a message by {message.author.mention} in {message.channel.mention}.",
+            title="📣 • Member report",
+            fields=[
+                {"name": "Reporter", "value": f"`{member}` ({member.id})"},
+                {"name": "Reported user", "value": f"`{message.author}` ({message.author.id})"},
+                # Kept in the report in case the message gets deleted.
+                {"name": "Message", "value": text[:1000], "inline": False},
+            ],
+            ping=False,
+            jump_to=message,
+            # One report per message every 6 hours, however many people react.
+            heat_key=f"modslash-report-{message.id}",
+            no_repeat_for=timedelta(hours=6),
+        )
+        await self._dm(member, "Thanks, the mods have been told about that message.")
+
+    @commands.group(name="reportset")
+    @commands.guild_only()
+    @commands.admin_or_permissions(manage_guild=True)
+    async def reportset(self, ctx: commands.Context):
+        """Report reaction settings (uses Defender)."""
+
+    @reportset.command(name="emoji")
+    async def reportset_emoji(self, ctx: commands.Context, emoji: discord.Emoji):
+        """Set the custom server emoji that reports a message."""
+        if emoji.guild_id != ctx.guild.id:
+            await ctx.send("Use an emoji from this server.")
+            return
+        await self.config.guild(ctx.guild).report_emoji_id.set(emoji.id)
+        await ctx.send(f"Reacting with {emoji} will report a message. Turn it on with `{ctx.clean_prefix}reportset toggle`.")
+
+    @reportset.command(name="toggle")
+    async def reportset_toggle(self, ctx: commands.Context):
+        """Turn the report reaction on or off."""
+        conf = self.config.guild(ctx.guild)
+        if not await conf.report_emoji_id():
+            await ctx.send(f"Set the emoji first: `{ctx.clean_prefix}reportset emoji :youremoji:`")
+            return
+        enabled = not await conf.report_enabled()
+        await conf.report_enabled.set(enabled)
+        warning = ""
+        if enabled and self.bot.get_cog("Defender") is None:
+            warning = "\n⚠️ Defender isn't loaded, so reports won't go anywhere until it is."
+        await ctx.send(f"Report reaction is now **{'on' if enabled else 'off'}**.{warning}")
+
+    @reportset.command(name="show")
+    async def reportset_show(self, ctx: commands.Context):
+        """Show the report reaction settings."""
+        conf = await self.config.guild(ctx.guild).all()
+        emoji = self.bot.get_emoji(conf["report_emoji_id"]) if conf["report_emoji_id"] else None
+        await ctx.send(
+            f"**Report reaction:** {'on' if conf['report_enabled'] else 'off'}\n"
+            f"**Emoji:** {emoji or 'not set'}\n"
+            "**What it does (by Defender rank):** Rank 1 (mods, helpers, trusted) = full alert · "
+            "Rank 2 (established members) = quiet report · Rank 3-4 (new) = ignored"
+        )
 
     # ------------------------------------------------------------ purge
 
