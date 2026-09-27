@@ -59,7 +59,9 @@ class ModSlash(commands.Cog):
         self.config = Config.get_conf(self, identifier=0x5C0BE0A2D5, force_registration=True)
         self.config.register_guild(
             report_enabled=False,
-            report_emoji_id=None,  # a custom server emoji; reacting with it reports the message
+            # The report emoji: a custom server emoji (by id) OR a standard one like 🛎️.
+            report_emoji_id=None,
+            report_emoji_unicode=None,
             report_blocked=[],  # member ids whose report reactions are ignored (false reporters)
             # Auto-hide: remove a message once this many different members report it,
             # but ONLY if its author is a new account (Defender Rank 3-4). 0 = off.
@@ -409,12 +411,12 @@ class ModSlash(commands.Cog):
         The reaction is removed right away. A reported message gets one public
         reply saying it's being reviewed (it never says who reported it).
         """
-        if payload.guild_id is None or payload.emoji.id is None or payload.member is None:
+        if payload.guild_id is None or payload.member is None:
             return
         if payload.member.bot:
             return
         conf = await self.config.guild_from_id(payload.guild_id).all()
-        if not conf["report_enabled"] or payload.emoji.id != conf["report_emoji_id"]:
+        if not conf["report_enabled"] or not self._is_report_emoji(payload.emoji, conf):
             return
         guild = payload.member.guild
         if await self.bot.cog_disabled_in_guild(self, guild):
@@ -453,6 +455,16 @@ class ModSlash(commands.Cog):
             return
         await self._mark_under_review(message)
         await self._maybe_auto_hide(defender, message, conf["auto_hide_threshold"])
+
+    @staticmethod
+    def _is_report_emoji(emoji: discord.PartialEmoji, conf: dict) -> bool:
+        if conf["report_emoji_id"]:
+            return emoji.id == conf["report_emoji_id"]
+        if conf["report_emoji_unicode"] and emoji.id is None:
+            # Discord sometimes adds/drops the invisible "emoji style" marker (U+FE0F).
+            strip = lambda text: (text or "").replace("\ufe0f", "")
+            return strip(emoji.name) == strip(conf["report_emoji_unicode"])
+        return False
 
     async def _mark_under_review(self, message: discord.Message) -> None:
         """Reply once to the reported message so everyone (including the reporter)
@@ -572,19 +584,34 @@ class ModSlash(commands.Cog):
         """Report reaction settings (uses Defender)."""
 
     @reportset.command(name="emoji")
-    async def reportset_emoji(self, ctx: commands.Context, emoji: discord.Emoji):
-        """Set the custom server emoji that reports a message."""
-        if emoji.guild_id != ctx.guild.id:
-            await ctx.send("Use an emoji from this server.")
+    async def reportset_emoji(self, ctx: commands.Context, emoji: str):
+        """Set the emoji that reports a message: a custom server emoji or a standard one like 🛎️."""
+        conf = self.config.guild(ctx.guild)
+        try:
+            custom = await commands.EmojiConverter().convert(ctx, emoji)
+        except commands.BadArgument:
+            custom = None
+        if custom is not None:
+            if custom.guild_id != ctx.guild.id:
+                await ctx.send("Use an emoji from this server.")
+                return
+            await conf.report_emoji_id.set(custom.id)
+            await conf.report_emoji_unicode.set(None)
+            shown = str(custom)
+        elif emoji.startswith("<") or any(ch.isalnum() for ch in emoji) or len(emoji) > 10:
+            await ctx.send("That doesn't look like an emoji. Pick one from the emoji menu.")
             return
-        await self.config.guild(ctx.guild).report_emoji_id.set(emoji.id)
-        await ctx.send(f"Reacting with {emoji} will report a message. Turn it on with `{ctx.clean_prefix}reportset toggle`.")
+        else:
+            await conf.report_emoji_unicode.set(emoji)
+            await conf.report_emoji_id.set(None)
+            shown = emoji
+        await ctx.send(f"Reacting with {shown} will report a message. Turn it on with `{ctx.clean_prefix}reportset toggle`.")
 
     @reportset.command(name="toggle")
     async def reportset_toggle(self, ctx: commands.Context):
         """Turn the report reaction on or off."""
         conf = self.config.guild(ctx.guild)
-        if not await conf.report_emoji_id():
+        if not await conf.report_emoji_id() and not await conf.report_emoji_unicode():
             await ctx.send(f"Set the emoji first: `{ctx.clean_prefix}reportset emoji :youremoji:`")
             return
         enabled = not await conf.report_enabled()
@@ -630,7 +657,7 @@ class ModSlash(commands.Cog):
     async def reportset_show(self, ctx: commands.Context):
         """Show the report reaction settings."""
         conf = await self.config.guild(ctx.guild).all()
-        emoji = self.bot.get_emoji(conf["report_emoji_id"]) if conf["report_emoji_id"] else None
+        emoji = self.bot.get_emoji(conf["report_emoji_id"]) if conf["report_emoji_id"] else conf["report_emoji_unicode"]
         blocked = ", ".join(f"<@{i}>" for i in conf["report_blocked"]) or "nobody"
         await ctx.send(
             f"**Report reaction:** {'on' if conf['report_enabled'] else 'off'}\n"

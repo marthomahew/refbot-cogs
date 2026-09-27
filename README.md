@@ -194,8 +194,9 @@ work exactly like the `!` versions.
 | Right-click a message → Apps → **Alert staff** | Same as `/alert`, but the staff ping links to that exact message. Enable with `!slash enable "Alert staff" message` |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's) |
 
-**Report reaction (needs Defender):** react to a message with the server's report
-emoji (set with `!reportset emoji :emoji:`, then `!reportset toggle`). The bot
+**Report reaction (needs Defender):** react to a message with the report emoji
+(set with `!reportset emoji 🛎️`, a standard or custom server emoji, then
+`!reportset toggle`). The bot
 removes the reaction at once, then, by the reactor's Defender rank:
 Rank 1 (mods, Defender helper/trusted roles) sends Defender's full alert, like
 `/alert`; Rank 2 (established members) sends a quiet "member report" to
