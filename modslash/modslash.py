@@ -61,8 +61,12 @@ class ModSlash(commands.Cog):
             report_enabled=False,
             report_emoji_id=None,  # a custom server emoji; reacting with it reports the message
             report_blocked=[],  # member ids whose report reactions are ignored (false reporters)
+            # Auto-hide: remove a message once this many different members report it,
+            # but ONLY if its author is a new account (Defender Rank 3-4). 0 = off.
+            auto_hide_threshold=3,
         )
-        self._reviewed: set[int] = set()  # messages that already got the "being reviewed" reply
+        self._review_notes: dict[int, discord.Message] = {}  # reported message id -> our public note
+        self._reporters: dict[int, set[int]] = {}  # reported message id -> ids of members who reported it
 
     async def cog_load(self) -> None:
         self.bot.tree.add_command(self.alert_menu)
@@ -391,7 +395,8 @@ class ModSlash(commands.Cog):
 
     # ------------------------------------------------------------ report reaction
 
-    REVIEW_NOTE = "🚩 This message has been reported and is being reviewed by the mods."
+    REVIEW_NOTE = "🚩 Reported to the mods. Don't click any links in this message."
+    REMOVED_NOTE = "🧹 Removed after multiple reports."
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
@@ -434,6 +439,8 @@ class ModSlash(commands.Cog):
             log.info("Ignored report reaction from blocked member %s", member.id)
             return
         rank = int(await defender.rank_user(member))
+        if rank <= 2:
+            self._reporters.setdefault(message.id, set()).add(member.id)
         if rank == 1:
             if not await self._reaction_alert(member, message):
                 # Alert on cooldown (staff were pinged about this channel moments
@@ -445,19 +452,57 @@ class ModSlash(commands.Cog):
             log.info("Ignored report reaction from new member %s (Defender rank %s)", member.id, rank)
             return
         await self._mark_under_review(message)
+        await self._maybe_auto_hide(defender, message, conf["auto_hide_threshold"])
 
     async def _mark_under_review(self, message: discord.Message) -> None:
         """Reply once to the reported message so everyone (including the reporter)
         can see it's being looked at."""
-        if message.id in self._reviewed:
+        if message.id in self._review_notes:
             return
-        self._reviewed.add(message.id)
         try:
-            await message.reply(
+            self._review_notes[message.id] = await message.reply(
                 self.REVIEW_NOTE, mention_author=False, allowed_mentions=discord.AllowedMentions.none()
             )
         except discord.HTTPException as e:
             log.warning("Couldn't post the review note in #%s: %r", message.channel, e)
+
+    async def _maybe_auto_hide(self, defender, message: discord.Message, threshold: int) -> None:
+        """Remove a reported message once enough members report it, but only if
+        it's from a new account. Established members can never be silenced this way."""
+        reporters = self._reporters.get(message.id, set())
+        if not threshold or len(reporters) < threshold:
+            return
+        if message.webhook_id is not None or message.author.bot:
+            return  # link reposts and bots: report only, never auto-hide
+        author = message.guild.get_member(message.author.id)
+        # Someone who already left the server can't be a regular; otherwise ask Defender.
+        if author is not None and int(await defender.rank_user(author)) <= 2:
+            return
+        try:
+            await message.delete()
+        except discord.HTTPException as e:
+            log.warning("Auto-hide couldn't delete %s: %r", message.jump_url, e)
+            return
+        self._reporters.pop(message.id, None)
+        await defender.send_notification(
+            message.guild,
+            f"A message by {message.author.mention} in {message.channel.mention} was removed "
+            f"after {len(reporters)} reports.",
+            title="🧹 • Auto-removed (reported spam)",
+            fields=[
+                {"name": "Author", "value": f"`{message.author}` ({message.author.id})"},
+                # Listed so mods can spot a pile-on and `!reportset block` the people behind it.
+                {"name": "Reported by", "value": ", ".join(f"<@{r}>" for r in sorted(reporters))[:1000], "inline": False},
+                {"name": "Message", "value": (message.content or "(no text; attachment or embed)")[:1000], "inline": False},
+            ],
+            ping=False,
+        )
+        note = self._review_notes.get(message.id)
+        if note is not None:
+            try:
+                await note.edit(content=self.REMOVED_NOTE)
+            except discord.HTTPException:
+                pass
 
     async def _reaction_alert(self, member: discord.Member, message: discord.Message) -> bool:
         """Run Defender's own alert command, as if `member` used it on `message`.
@@ -566,6 +611,21 @@ class ModSlash(commands.Cog):
                 blocked.remove(member.id)
         await ctx.send(f"{member.mention} can report again.", allowed_mentions=discord.AllowedMentions.none())
 
+    @reportset.command(name="autohide")
+    async def reportset_autohide(self, ctx: commands.Context, reports: int):
+        """How many different members' reports remove a new account's message (0 = off).
+
+        Only messages from new accounts (Defender Rank 3-4) can be auto-removed.
+        """
+        if reports < 0 or reports > 20:
+            await ctx.send("Use a number from 0 (off) to 20.")
+            return
+        await self.config.guild(ctx.guild).auto_hide_threshold.set(reports)
+        if reports:
+            await ctx.send(f"New accounts' messages will be removed after **{reports}** different members report them.")
+        else:
+            await ctx.send("Auto-hide is off. Reports still go to the mods.")
+
     @reportset.command(name="show")
     async def reportset_show(self, ctx: commands.Context):
         """Show the report reaction settings."""
@@ -576,9 +636,11 @@ class ModSlash(commands.Cog):
             f"**Report reaction:** {'on' if conf['report_enabled'] else 'off'}\n"
             f"**Emoji:** {emoji or 'not set'}\n"
             f"**Blocked from reporting:** {blocked}\n"
+            f"**Auto-hide:** "
+            f"{str(conf['auto_hide_threshold']) + ' reports (new accounts only)' if conf['auto_hide_threshold'] else 'off'}\n"
             "**What it does (by Defender rank):** Rank 1 (mods, helpers, trusted) = full alert · "
             "Rank 2 (established members) = quiet report · Rank 3-4 (new) = ignored. "
-            "Reported messages get a public \"being reviewed\" reply.",
+            "Reported messages get a public \"don't click links\" reply.",
             allowed_mentions=discord.AllowedMentions.none(),
         )
 

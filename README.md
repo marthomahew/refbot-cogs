@@ -200,9 +200,15 @@ removes the reaction at once, then, by the reactor's Defender rank:
 Rank 1 (mods, Defender helper/trusted roles) sends Defender's full alert, like
 `/alert`; Rank 2 (established members) sends a quiet "member report" to
 Defender's notify channel with no ping (one per message every 6 hours); Rank 3-4
-(new members) is ignored. A reported message gets one public reply, "🚩 This
-message has been reported and is being reviewed by the mods." (never says who
-reported). `!reportset block @user` ignores someone's reports after false reports
+(new members) is ignored. A reported message gets one public reply, "🚩 Reported
+to the mods. Don't click any links in this message." (never says who reported).
+
+**Auto-hide (spam):** once 3 different members (Rank 2+, not blocked) report a
+message *from a new account* (Defender Rank 3-4, or someone who already left),
+the bot deletes it, changes the note to "🧹 Removed after multiple reports.", and
+tells staff (with the text and who reported it). Messages from established
+members, mods, helpers, bots and link reposts can never be auto-hidden, only
+reported. `!reportset autohide <n>` changes the number (0 = off). `!reportset block @user` ignores someone's reports after false reports
 (`unblock` to undo); `!reportset show` shows the settings.
 
 All replies are private ("Only you can see this"); modlog and log channels still record everything. Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
