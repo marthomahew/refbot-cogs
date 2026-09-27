@@ -47,6 +47,17 @@ class ModSlash(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
+        # Right-click a message → Apps → "Alert staff". Context menus can't be
+        # declared inside a cog class like slash commands, so it's built here
+        # and added to the bot in cog_load.
+        self.alert_menu = app_commands.ContextMenu(name="Alert staff", callback=self.alert_from_message)
+        self.alert_menu.guild_only = True
+
+    async def cog_load(self) -> None:
+        self.bot.tree.add_command(self.alert_menu)
+
+    async def cog_unload(self) -> None:
+        self.bot.tree.remove_command(self.alert_menu.name, type=self.alert_menu.type)
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
         # Stores nothing; the underlying Red cogs manage their own data.
@@ -331,26 +342,37 @@ class ModSlash(commands.Cog):
 
     # ------------------------------------------------------------ Defender
 
+    async def _alert_about(self, interaction: discord.Interaction, target: Optional[discord.Message]) -> None:
+        """Run Defender's alert, with its "Click to jump" link pointing at `target`.
+
+        Defender links to the command message; slash commands and right-click
+        apps have none, so we hand it a copy of `target`, credited to the person
+        raising the alert.
+        """
+
+        async def point_at_target(ctx: commands.Context) -> None:
+            if target is not None:
+                stand_in = copy(target)
+                stand_in.author = interaction.user
+                ctx.message = stand_in
+
+        await self._run(interaction, "alert", prepare=point_at_target)
+
     @app_commands.command(name="alert", description="Alert the staff (Defender)")
     @app_commands.guild_only()
     async def alert(self, interaction: discord.Interaction):
         # No default_permissions: Defender's helper role (e.g. Assistant Coach)
         # usually has no mod permissions. Defender itself checks who's allowed.
+        # A slash command can't be a reply, so link to the channel's latest message.
+        try:
+            latest = [m async for m in interaction.channel.history(limit=1)]
+        except discord.HTTPException:
+            latest = []
+        await self._alert_about(interaction, latest[0] if latest else None)
 
-        async def point_at_latest_message(ctx: commands.Context) -> None:
-            # Defender's alert includes a "Click to jump" link to the command
-            # message. A slash command has none, so link to the latest real
-            # message in the channel instead, credited to the person alerting.
-            try:
-                latest = [m async for m in interaction.channel.history(limit=1)]
-            except discord.HTTPException:
-                return
-            if latest:
-                stand_in = copy(latest[0])
-                stand_in.author = interaction.user
-                ctx.message = stand_in
-
-        await self._run(interaction, "alert", prepare=point_at_latest_message)
+    async def alert_from_message(self, interaction: discord.Interaction, message: discord.Message):
+        """Right-click → Apps → Alert staff: the alert links to that exact message."""
+        await self._alert_about(interaction, message)
 
     # ------------------------------------------------------------ purge
 
