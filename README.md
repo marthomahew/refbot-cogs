@@ -144,6 +144,7 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 | `!reactking :emoji: [period] [#channel]` | Everyone | Top 10 members by that reaction, plus the most-reacted message |
 | `!awards channel #channel` | Admin | Where the weekly awards post |
 | `!awards modchannel #channel` | Admin | Private channel for full results with admins/mods included |
+| `!awards statbot #channel @role` / `off` | Admin | Link Statbot's weekly top-chatter announcement (and its role, as a fallback) |
 | `!awards exclude #channel` | Admin | Never read that channel or its threads, for awards or `!reactking` (the command message is deleted so the name doesn't linger) |
 | `!awards unexclude #channel` | Admin | Count it again |
 | `!awards add :emoji: [@role]` | Admin | Add a weekly king award; the role moves to each week's winner |
@@ -166,10 +167,18 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
   so they can't appear in any leaderboard, award or "most reacted" link. `!awards
   list` shows only how many channels are excluded, never their names.
 
-**Weekly awards:** once a week (default Monday 12:00 Central) the bot posts one
-card with every award's top 3 for the last 7 days, pings the winners, and moves
-each award role from last week's king to this week's (ties share the crown; a
-week with no winner takes the role back). Admins and mods (Red's admin/mod roles,
+**Weekly awards:** once a week (default Monday 12:00 Central):
+1. 30 minutes early, the bot tallies the week (the slow part).
+2. At the award time it posts the card: every award's full top 3.
+3. When Statbot posts its "Hear ye, hear ye! … Bow down to @winner" message (linked
+   with `!awards statbot`), or 15 minutes later if it doesn't, the bot hands out the
+   roles and adds "🏅 role → @winner" lines to the card, then congratulates them.
+
+**One award per person**, in priority order: Statbot's top chatter → 👑 React King
+(if enabled) → the emoji awards in the order they were added. Each role goes to the
+highest-ranked person on that leaderboard who doesn't already hold a higher award
+that week (the card says who was skipped and why). Ties share a role; a week with
+no eligible winner takes the role back. Admins and mods (Red's admin/mod roles,
 Administrator permission, or the owner) can't win, but their reactions still
 count for others; the full results, staff included and marked 🛡️, go to the mod
 channel.

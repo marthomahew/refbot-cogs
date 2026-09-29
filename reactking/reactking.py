@@ -42,6 +42,11 @@ MAX_AWARDS = 10
 # How many channels to read at once. Discord paces requests per channel, so
 # reading a few in parallel is much faster than one after another.
 SCAN_CONCURRENCY = 4
+# Weekly awards timeline: tally this long before the post time (the scan takes
+# minutes on a busy server), post the card on time, then hand out roles when
+# Statbot announces its top chatter, or after this long if it never does.
+TALLY_LEAD = timedelta(minutes=30)
+STATBOT_FALLBACK = timedelta(minutes=15)
 # If the bot was offline at award time, still post if it's back within this long.
 # (Later than that, skip the week rather than announce Monday's awards on Wednesday.)
 LATE_GRACE = timedelta(hours=12)
@@ -120,6 +125,13 @@ class ReactKing(commands.Cog):
             # Channels never read at all (and their threads), e.g. a private vent channel.
             # Used by both the awards and `!reactking`, so they can never show up anywhere.
             excluded_channels=[],
+            # Statbot's weekly "top chatter" announcement: where it's posted, and its role
+            # (used as a fallback if the announcement is missed). Its winner outranks
+            # every reaction award, so they can't also win one.
+            statbot_channel=None,
+            statbot_role=None,
+            roles_run=None,  # ISO time of the award slot whose roles were handed out
+            card=None,  # [channel id, message id] of this week's public card (to add role lines later)
             # [{"emoji": "<:kek:123>" or "😂", "role_id": int or None}, ...]
             awards=[],
             day=0,  # 0 = Monday
@@ -130,6 +142,11 @@ class ReactKing(commands.Cog):
         )
         self._task: Optional[asyncio.Task] = None
         self._scan_lock = asyncio.Lock()  # one history scan at a time
+        # guild id -> this week's in-progress award state (see _award_step)
+        self._weekly: dict[int, dict] = {}
+        # The timer and the Statbot listener can both advance a server's awards;
+        # this makes sure only one does at a time (so the card is never posted twice).
+        self._step_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.last_scan: dict = {}  # stats from the most recent scan
 
     async def cog_load(self) -> None:
@@ -366,7 +383,7 @@ class ReactKing(commands.Cog):
     # ------------------------------------------------------------ weekly awards
 
     async def _award_loop(self) -> None:
-        """Checks once a minute whether any server's weekly award time has come."""
+        """Checks every 20 seconds how each server's weekly awards are coming along."""
         await self.bot.wait_until_red_ready()
         while True:
             try:
@@ -374,143 +391,297 @@ class ReactKing(commands.Cog):
                     guild = self.bot.get_guild(guild_id)
                     if guild is None or not conf["enabled"] or not conf["awards"] or not conf["awards_channel"]:
                         continue
-                    slot = self._current_slot(conf)
-                    if slot is None:
-                        continue
-                    if conf["last_run"] and datetime.fromisoformat(conf["last_run"]) >= slot:
-                        continue  # already posted for this week
-                    # Mark first, so a crash mid-post can't cause a double post.
-                    await self.config.guild(guild).last_run.set(slot.isoformat())
-                    if datetime.now(timezone.utc) - slot > LATE_GRACE:
-                        log.info("Skipping awards for %s in guild %s (bot was offline too long)", slot, guild_id)
-                        continue
-                    await self._post_awards(guild, conf, mode="scheduled")
+                    await self._award_step(guild, conf)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 log.exception("Weekly awards check failed")
-            await asyncio.sleep(60)
+            await asyncio.sleep(20)
 
     @staticmethod
-    def _current_slot(conf: dict) -> Optional[datetime]:
+    def _slot_for(conf: dict, now: datetime) -> Optional[datetime]:
+        """The award time this moment belongs to: from TALLY_LEAD before it, onwards."""
         try:
             tz = ZoneInfo(conf["tz"])
         except (ZoneInfoNotFoundError, ValueError):
             return None
         hour, minute = (int(x) for x in conf["time"].split(":"))
-        return last_scheduled(datetime.now(timezone.utc), conf["day"], hour, minute, tz)
+        return last_scheduled(now + TALLY_LEAD, conf["day"], hour, minute, tz)
 
-    async def _post_awards(
-        self,
-        guild: discord.Guild,
-        conf: dict,
-        mode: str = "scheduled",
-        here: Optional[discord.abc.Messageable] = None,
-        progress: Optional[Callable[[int, int], Awaitable[None]]] = None,
-    ) -> Optional[str]:
-        """Count the past week and post the results. Returns an error message, or None.
+    @staticmethod
+    def _current_slot(conf: dict) -> Optional[datetime]:
+        return ReactKing._slot_for(conf, datetime.now(timezone.utc) - TALLY_LEAD)
 
-        mode "scheduled": public card in the awards channel (winners pinged), full
-                          results to the mod channel, roles moved.
-        mode "preview":   both cards posted `here`; no roles, no pings.
-        mode "testrun":   both cards posted `here`; roles moved for real, no pings.
+    async def _award_step(self, guild: discord.Guild, conf: dict) -> None:
+        async with self._step_locks[guild.id]:
+            # Re-read settings inside the lock: the other caller may have just moved things on.
+            await self._award_step_locked(guild, await self.config.guild(guild).all())
+
+    async def _award_step_locked(self, guild: discord.Guild, conf: dict) -> None:
+        """One tick of the weekly timeline:
+        1. from 30 min before: tally in the background (the slow part);
+        2. at the award time: post the card (full results, no roles yet);
+        3. when Statbot announces its top chatter (or 15 min later): hand out
+           roles down the priority chain and add them to the card.
+        Progress is saved in config, so a restart never double-posts or skips roles.
         """
-        give_roles = mode in ("scheduled", "testrun")
-        if mode == "scheduled":
-            channel = guild.get_channel(conf["awards_channel"]) if conf["awards_channel"] else None
-            mod_channel = guild.get_channel(conf["mod_channel"]) if conf["mod_channel"] else None
-        else:
-            channel = mod_channel = here
-        if channel is None:
-            return "The awards channel is gone. Set it again with `!awards channel #channel`."
+        now = datetime.now(timezone.utc)
+        slot = self._slot_for(conf, now)
+        if slot is None:
+            return
+        posted = conf["last_run"] and datetime.fromisoformat(conf["last_run"]) >= slot
+        roles_done = conf["roles_run"] and datetime.fromisoformat(conf["roles_run"]) >= slot
+        if posted and roles_done:
+            return
+        conf_group = self.config.guild(guild)
+        if now - slot > LATE_GRACE:  # bot was offline far too long: skip this week
+            log.info("Skipping awards for %s in guild %s (bot was offline too long)", slot, guild.id)
+            await conf_group.last_run.set(slot.isoformat())
+            await conf_group.roles_run.set(slot.isoformat())
+            return
 
+        state = self._weekly.get(guild.id)
+        if state is None or state["slot"] != slot:
+            state = self._weekly[guild.id] = {"slot": slot, "task": None, "results": None, "chat_king": None}
+
+        # 1. Tally (starts TALLY_LEAD early; also after a restart if needed).
+        if state["results"] is None:
+            if state["task"] is None:
+                state["task"] = asyncio.create_task(self._compute(guild, conf))
+            if not state["task"].done():
+                return
+            try:
+                state["results"] = state["task"].result()
+            except Exception:
+                log.exception("Award tally failed in guild %s", guild.id)
+                state["task"] = None  # try again next tick
+                return
+
+        # 2. Post the card at the award time.
+        if not posted:
+            if now < slot:
+                return
+            await conf_group.last_run.set(slot.isoformat())  # mark first: never double-post
+            card = await self._publish_card(guild, conf, state["results"])
+            await conf_group.card.set([card.channel.id, card.id] if card else None)
+
+        # 3. Roles: as soon as Statbot has crowned its top chatter, or at the fallback time.
+        if not roles_done:
+            if conf["statbot_channel"] and state["chat_king"] is None and now < slot + STATBOT_FALLBACK:
+                return
+            await conf_group.roles_run.set(slot.isoformat())
+            chat_king = state["chat_king"]
+            if chat_king is None:  # no announcement seen: use whoever holds Statbot's role
+                chat_king = self._role_holders(guild, conf["statbot_role"])
+            plan = await self._plan_roles(guild, conf, state["results"], chat_king)
+            notes = await self._apply_roles(guild, plan)
+            await self._finish_card(guild, conf, state["results"], plan)
+            for note in notes:
+                log.warning(note)
+
+    @staticmethod
+    def _role_holders(guild: discord.Guild, role_id: Optional[int]) -> set[int]:
+        role = guild.get_role(role_id) if role_id else None
+        return {m.id for m in role.members} if role else set()
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Statbot's "Hear ye, hear ye! … Bow down to @winner" announcement: note the
+        winner, and hand out this week's reaction roles right away."""
+        if message.guild is None or not message.author.bot or not message.mentions:
+            return
+        if "hear ye" not in message.content.lower():
+            return
+        conf = await self.config.guild(message.guild).all()
+        if message.channel.id != conf["statbot_channel"]:
+            return
+        state = self._weekly.get(message.guild.id)
+        now = datetime.now(timezone.utc)
+        slot = self._slot_for(conf, now)
+        if slot is None or not (slot - TALLY_LEAD <= now <= slot + LATE_GRACE):
+            return  # not around award time
+        if state is None or state["slot"] != slot:
+            state = self._weekly[message.guild.id] = {"slot": slot, "task": None, "results": None, "chat_king": None}
+        # The first mention is the new top chatter ("Bow down to @Grem"); a second
+        # message mentions last week's, which we ignore.
+        state["chat_king"] = {message.mentions[0].id}
+        log.info("Statbot crowned %s; handing out reaction roles", message.mentions[0].id)
+        if conf["enabled"] and conf["awards"] and conf["awards_channel"]:
+            await self._award_step(message.guild, conf)
+
+    # ---- the parts: tally -> plan roles -> cards -> apply
+
+    async def _compute(
+        self, guild: discord.Guild, conf: dict, progress: Optional[Callable[[int, int], Awaitable[None]]] = None
+    ) -> dict:
+        """Tally the past 7 days for every award (the slow part)."""
         awards = [(self._resolve_emoji(guild, a["emoji"]), a.get("role_id")) for a in conf["awards"]]
         awards = [(t, r) for t, r in awards if t is not None]
         tallies = await self._count(
             guild, [t for t, _ in awards], datetime.now(timezone.utc) - timedelta(days=7), progress=progress
         )
-
-        # Admins and mods can't win (but their reactions still count for others).
-        everyone = {member for tally in tallies for member in tally.totals}
-        staff = {member for member in everyone if await self._is_staff(guild, member)}
-
-        embed = discord.Embed(title="👑 Weekly Reaction Kings", color=discord.Color.gold())
-        full = discord.Embed(title="🛡️ Weekly Reaction Kings: full results (staff included)", color=discord.Color.dark_grey())
-        winners: set[int] = set()
-        role_notes: list[str] = []
-        for (target, role_id), tally in zip(awards, tallies):
-            # Private card: everyone, staff marked.
-            full_lines = self._ranking_lines(tally, target, 5, staff=staff) or ["Nobody this week."]
-            full.add_field(name=f"{target}", value="\n".join(full_lines)[:1024], inline=False)
-
-            # Public card: staff left out, so the next person moves up.
-            ranking = tally.ranking(3, exclude=staff)
-            kings: list[int] = []
-            if ranking:
-                lines = self._ranking_lines(tally, target, 3, exclude=staff)
-                best_count, best_url = tally.best(exclude=staff)
-                if best_count:
-                    lines.append(f"-# most {target}'d message: {best_count} — {best_url}")
-                embed.add_field(name=f"{target} King", value="\n".join(lines)[:1024], inline=False)
-                # Everyone tied for first is king.
-                top_count = ranking[0][1]
-                kings = [member_id for member_id, count in ranking if count == top_count]
-                winners.update(kings)
-            else:
-                embed.add_field(name=f"{target} King", value="Nobody this week.", inline=False)
-            # Also runs with no kings: the role is "of the week", so last week's holder loses it.
-            if give_roles and role_id:
-                note = await self._move_role(guild, role_id, kings, target)
-                if note:
-                    role_notes.append(note)
-
-        # Overall React King: all award emotes added together. Goes at the top.
+        overall = None
         if conf.get("overall") and tallies:
             overall = Tally()
             for tally in tallies:
                 for member, count in tally.totals.items():
                     overall.totals[member] += count
-            full.insert_field_at(
-                0, name="👑 Overall", inline=False,
-                value="\n".join(self._ranking_lines(overall, "total", 5, staff=staff)) or "Nobody this week.",
-            )
-            ranking = overall.ranking(3, exclude=staff)
-            kings = [m for m, c in ranking if c == ranking[0][1]] if ranking else []
-            winners.update(kings)
-            embed.insert_field_at(
-                0, name="👑 React King", inline=False,
-                value="\n".join(self._ranking_lines(overall, "total", 3, exclude=staff)) or "Nobody this week.",
-            )
-            if give_roles and conf.get("overall_role_id"):
-                note = await self._move_role(guild, conf["overall_role_id"], kings, "Emoji")
+        # Admins and mods can't win (but their reactions still count for others).
+        everyone = {member for tally in tallies for member in tally.totals}
+        staff = {member for member in everyone if await self._is_staff(guild, member)}
+        return {"awards": awards, "tallies": tallies, "overall": overall, "staff": staff, "stats": dict(self.last_scan)}
+
+    async def _plan_roles(self, guild: discord.Guild, conf: dict, results: dict, chat_king: set[int]) -> list[dict]:
+        """Who gets which role, one award per person, in priority order:
+        Statbot's top chatter (already has theirs) -> React King (if enabled) -> the
+        emoji awards in the order they were added. Each role goes to the highest-
+        ranked person on that leaderboard who isn't staff and doesn't hold a higher
+        award this week. Ties for first share the role."""
+        chat_role = guild.get_role(conf["statbot_role"]) if conf["statbot_role"] else None
+        taken: dict[int, str] = {m: (chat_role.name if chat_role else "top chatter") for m in chat_king}
+        chain = []
+        if results["overall"] is not None:
+            chain.append(("👑 React King", "total", results["overall"], conf.get("overall_role_id")))
+        for (target, role_id), tally in zip(results["awards"], results["tallies"]):
+            chain.append((f"{target} King", target, tally, role_id))
+
+        plan = []
+        for label, target, tally, role_id in chain:
+            role = guild.get_role(role_id) if role_id else None
+            ranking = tally.ranking(len(tally.totals), exclude=results["staff"])
+            eligible = [(m, c) for m, c in ranking if m not in taken]
+            kings = [m for m, c in eligible if c == eligible[0][1]] if eligible else []
+            # People ranked above the winner who were passed over, and why.
+            first_count = eligible[0][1] if eligible else 0
+            skipped = [(m, taken[m]) for m, c in ranking if m in taken and c >= first_count][:3]
+            award_name = role.name if role else label
+            for m in kings:
+                taken[m] = award_name
+            plan.append({"label": label, "target": target, "role_id": role_id, "role_name": role.name if role else None,
+                         "kings": kings, "skipped": skipped})
+        return plan
+
+    async def _apply_roles(self, guild: discord.Guild, plan: list[dict]) -> list[str]:
+        notes = []
+        for item in plan:
+            if item["role_id"]:  # also runs with no kings: last week's holder loses it
+                note = await self._move_role(guild, item["role_id"], item["kings"], item["target"])
                 if note:
-                    role_notes.append(note)
+                    notes.append(note)
+        return notes
 
-        embed.set_footer(text="Last 7 days · self-reacts and bots don't count · staff can't win")
+    def _cards(self, results: dict, plan: Optional[list[dict]] = None) -> tuple[discord.Embed, discord.Embed]:
+        """The public card (staff left out, optional role lines) and the full mod card."""
+        staff = results["staff"]
+        embed = discord.Embed(title="👑 Weekly Reaction Kings", color=discord.Color.gold())
+        full = discord.Embed(title="🛡️ Weekly Reaction Kings: full results (staff included)", color=discord.Color.dark_grey())
+        sections = []
+        if results["overall"] is not None:
+            sections.append(("👑 React King", "👑 Overall", "total", results["overall"]))
+        for (target, _), tally in zip(results["awards"], results["tallies"]):
+            sections.append((f"{target} King", f"{target}", target, tally))
+        planned = {item["label"]: item for item in plan or []}
+        for label, full_label, target, tally in sections:
+            full_lines = self._ranking_lines(tally, target, 5, staff=staff) or ["Nobody this week."]
+            full.add_field(name=full_label, value="\n".join(full_lines)[:1024], inline=False)
+
+            lines = self._ranking_lines(tally, target, 3, exclude=staff) or ["Nobody this week."]
+            if target != "total":
+                best_count, best_url = tally.best(exclude=staff)
+                if best_count:
+                    lines.append(f"-# most {target}'d message: {best_count} — {best_url}")
+            item = planned.get(label)
+            if item and item["role_name"]:
+                if item["kings"]:
+                    line = f"-# 🏅 {item['role_name']} → " + ", ".join(f"<@{k}>" for k in item["kings"])
+                else:
+                    line = f"-# 🏅 {item['role_name']} → nobody this week"
+                if item["skipped"]:
+                    line += " (" + "; ".join(f"<@{m}> already has {why}" for m, why in item["skipped"]) + ")"
+                lines.append(line)
+            embed.add_field(name=label, value="\n".join(lines)[:1024], inline=False)
+        embed.set_footer(text="Last 7 days · self-reacts and bots don't count · staff can't win · one award per person")
         full.set_footer(text="Last 7 days · 🛡️ = admin/mod (can't win the public award)")
-        if mode == "scheduled":
-            content = "Congrats " + ", ".join(f"<@{w}>" for w in sorted(winners)) + "! 👑" if winners else None
-            mentions = discord.AllowedMentions(users=True, roles=False, everyone=False)
-        elif mode == "testrun":
-            content = ("-# Test run: roles were given/removed for real. Nobody pinged, nothing posted publicly.\n"
-                       f"-# {self._stats_text(self.last_scan)}")
-            mentions = discord.AllowedMentions.none()
-        else:
-            content = f"-# Preview: no roles given, nobody pinged.\n-# {self._stats_text(self.last_scan)}"
-            mentions = discord.AllowedMentions.none()
-        try:
-            await channel.send(content=content, embed=embed, allowed_mentions=mentions)
-        except discord.HTTPException as e:
-            log.warning("Couldn't post awards in guild %s: %r", guild.id, e)
-            return "I couldn't post in the awards channel. Check my permissions there."
+        return embed, full
 
-        # Full results go to the private mod channel (or, for a preview/test run, right here).
+    async def _publish_card(self, guild: discord.Guild, conf: dict, results: dict) -> Optional[discord.Message]:
+        """Post the public card (no roles yet) and the full mod card."""
+        channel = guild.get_channel(conf["awards_channel"])
+        mod_channel = guild.get_channel(conf["mod_channel"]) if conf["mod_channel"] else None
+        embed, full = self._cards(results)
+        card = None
+        if channel is not None:
+            try:
+                card = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException as e:
+                log.warning("Couldn't post awards in guild %s: %r", guild.id, e)
         if mod_channel is not None:
             try:
                 await mod_channel.send(embed=full, allowed_mentions=discord.AllowedMentions.none())
             except discord.HTTPException as e:
                 log.warning("Couldn't post full award results in guild %s: %r", guild.id, e)
-        for note in role_notes:
+        return card
+
+    async def _finish_card(self, guild: discord.Guild, conf: dict, results: dict, plan: list[dict]) -> None:
+        """Add the role lines to this week's card and congratulate the winners."""
+        embed, _ = self._cards(results, plan)
+        winners = sorted({k for item in plan for k in item["kings"]})
+        card_ref = await self.config.guild(guild).card()
+        card = None
+        if card_ref:
+            channel = guild.get_channel(card_ref[0])
+            if channel is not None:
+                try:
+                    card = await channel.fetch_message(card_ref[1])
+                    await card.edit(embed=embed)
+                except discord.HTTPException as e:
+                    log.warning("Couldn't update the awards card in guild %s: %r", guild.id, e)
+                    card = None
+        if not winners:
+            return
+        text = "Congrats " + ", ".join(f"<@{w}>" for w in winners) + "! 👑"
+        mentions = discord.AllowedMentions(users=True, roles=False, everyone=False)
+        try:
+            if card is not None:
+                await card.reply(text, allowed_mentions=mentions, mention_author=False)
+            else:
+                channel = guild.get_channel(conf["awards_channel"])
+                if channel is not None:
+                    await channel.send(embed=embed, content=text, allowed_mentions=mentions)
+        except discord.HTTPException as e:
+            log.warning("Couldn't congratulate award winners in guild %s: %r", guild.id, e)
+
+    async def _post_awards(
+        self,
+        guild: discord.Guild,
+        conf: dict,
+        mode: str = "preview",
+        here: Optional[discord.abc.Messageable] = None,
+        progress: Optional[Callable[[int, int], Awaitable[None]]] = None,
+    ) -> Optional[str]:
+        """Preview / test run: tally now and post both cards `here`.
+
+        The roles are planned as if Statbot's current role holder is this week's
+        top chatter. "preview" gives no roles; "testrun" moves them for real.
+        Nobody is pinged either way.
+        """
+        results = await self._compute(guild, conf, progress=progress)
+        chat_king = self._role_holders(guild, conf["statbot_role"])
+        plan = await self._plan_roles(guild, conf, results, chat_king)
+        notes = await self._apply_roles(guild, plan) if mode == "testrun" else []
+        embed, full = self._cards(results, plan)
+        if mode == "testrun":
+            content = "-# Test run: roles were given/removed for real. Nobody pinged, nothing posted publicly."
+        else:
+            content = "-# Preview: no roles given, nobody pinged. Role lines show what *would* happen."
+        content += f"\n-# {self._stats_text(results['stats'])}"
+        try:
+            await here.send(content=content, embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            await here.send(embed=full, allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException as e:
+            log.warning("Couldn't post award preview in guild %s: %r", guild.id, e)
+            return "I couldn't post here."
+        for note in notes:
             log.warning(note)
         return None
 
@@ -582,6 +753,34 @@ class ReactKing(commands.Cog):
                 excluded.remove(channel.id)
         await ctx.send(f"{channel.mention} will be counted again.", allowed_mentions=discord.AllowedMentions.none())
 
+    @awards.command(name="statbot")
+    async def awards_statbot(self, ctx: commands.Context, channel: str, role: Optional[discord.Role] = None):
+        """Link Statbot's weekly top-chatter award: `statbot #free-talk @RoleName` (or `statbot off`).
+
+        When Statbot posts its "Hear ye, hear ye! … Bow down to @winner" message in
+        that channel, the reaction roles are handed out right away, and that winner
+        can't also win a reaction award. The role is the fallback: if no
+        announcement arrives within 15 minutes, whoever holds it counts as the winner.
+        """
+        conf = self.config.guild(ctx.guild)
+        if channel.lower() == "off":
+            await conf.statbot_channel.set(None)
+            await conf.statbot_role.set(None)
+            await ctx.send("Statbot link removed. Roles will be handed out right when the card posts.")
+            return
+        try:
+            text_channel = await commands.TextChannelConverter().convert(ctx, channel)
+        except commands.BadArgument:
+            await ctx.send("Use a channel, like `!awards statbot #free-talk @RoleName`.")
+            return
+        await conf.statbot_channel.set(text_channel.id)
+        await conf.statbot_role.set(role.id if role else None)
+        extra = f" Fallback role: {role.mention}." if role else " (No fallback role set.)"
+        await ctx.send(
+            f"Watching {text_channel.mention} for Statbot's announcement.{extra}",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @awards.command(name="modchannel")
     async def awards_modchannel(self, ctx: commands.Context, channel: discord.TextChannel):
         """Private channel for the full weekly results, with admins and mods included."""
@@ -642,6 +841,7 @@ class ReactKing(commands.Cog):
         # Don't fire immediately for a slot that already passed today.
         slot = self._current_slot(await conf.all())
         await conf.last_run.set(slot.isoformat() if slot else None)
+        await conf.roles_run.set(slot.isoformat() if slot else None)
         await ctx.send(f"Awards will post every **{day_key.title()} at {time}** ({await conf.tz()}).")
 
     @awards.command(name="toggle")
@@ -653,6 +853,7 @@ class ReactKing(commands.Cog):
             # Start from the next slot, not one that passed before turning on.
             slot = self._current_slot(await conf.all())
             await conf.last_run.set(slot.isoformat() if slot else None)
+            await conf.roles_run.set(slot.isoformat() if slot else None)
         await conf.enabled.set(enabled)
         await ctx.send(f"Weekly awards are now **{'on' if enabled else 'off'}**.")
 
@@ -666,7 +867,12 @@ class ReactKing(commands.Cog):
             f"**Channel:** {channel.mention if channel else 'not set'}",
             f"**Mod channel (full results):** "
             f"{ctx.guild.get_channel(conf['mod_channel']).mention if conf['mod_channel'] and ctx.guild.get_channel(conf['mod_channel']) else 'not set'}",
-            f"**When:** {DAYS[conf['day']].title()} {conf['time']} ({conf['tz']})",
+            f"**When:** {DAYS[conf['day']].title()} {conf['time']} ({conf['tz']}) · tally starts "
+            f"{int(TALLY_LEAD.total_seconds() // 60)} min early",
+            f"**Statbot:** "
+            + (f"<#{conf['statbot_channel']}>, fallback role "
+               f"{ctx.guild.get_role(conf['statbot_role']).mention if conf['statbot_role'] and ctx.guild.get_role(conf['statbot_role']) else 'none'}"
+               if conf["statbot_channel"] else "not linked"),
             # A count only, never names, in case this is run somewhere public.
             f"**Excluded channels:** {len(conf['excluded_channels'])} (plus all private threads)",
             "**Awards:**",
@@ -676,6 +882,8 @@ class ReactKing(commands.Cog):
             lines.append(f"{a['emoji']} King" + (f" → {role.mention}" if role else ""))
         if not conf["awards"]:
             lines.append("none yet, add one with `!awards add :kek:`")
+        lines.append("-# Priority (one award per person): Statbot's top chatter → React King (if on) → "
+                     "the awards above, top to bottom")
         if conf["overall"]:
             role = ctx.guild.get_role(conf["overall_role_id"]) if conf["overall_role_id"] else None
             lines.append("👑 Overall React King" + (f" → {role.mention}" if role else ""))
