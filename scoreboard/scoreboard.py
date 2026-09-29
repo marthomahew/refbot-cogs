@@ -14,6 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlsplit
 
 import aiohttp
 import discord
@@ -47,6 +48,11 @@ class Scoreboard(commands.Cog):
 
         self._week: Optional[espn.Week] = None  # last good data from ESPN
         self._fetch_failing = False  # so we only log a failure streak once
+        # Team logos as the bot's own "application emoji" (they don't use any server
+        # emoji slots). abbreviation -> "<:nfl_min:123>". Created from ESPN's logos.
+        self._logos: dict[str, str] = {}
+        self._logos_loaded = False
+        self._logo_failed: set[str] = set()  # don't retry a failed logo every minute
         self._last_content: dict[int, str] = {}  # guild id -> what we last showed
         self._warned: set[str] = set()  # one-time warnings already logged
         self.interval, self.interval_reason = 300, "starting up"
@@ -123,6 +129,39 @@ class Scoreboard(commands.Cog):
             log.info("ESPN scoreboard fetch working again")
             self._fetch_failing = False
         self._week = week
+        await self._ensure_logos(week)
+
+    async def _ensure_logos(self, week: "espn.Week") -> None:
+        """Make sure every team playing this week has a logo emoji. Runs after each
+        fetch; only does real work the first time a team shows up. Any problem just
+        means that team is shown as text, so failures never break the scoreboard."""
+        if not self._logos_loaded:
+            try:
+                existing = await self.bot.fetch_application_emojis()
+            except discord.HTTPException as e:
+                log.warning("Couldn't load logo emoji: %r", e)
+                return
+            self._logos = {e.name[4:].upper(): str(e) for e in existing if e.name.startswith("nfl_")}
+            self._logos_loaded = True
+
+        teams = {t.abbr: t.logo for g in week.games for t in (g.home, g.away) if t.logo}
+        for abbr, url in teams.items():
+            if abbr in self._logos or abbr in self._logo_failed:
+                continue
+            # ESPN's full-size logos can be over Discord's 256 KB emoji limit;
+            # their resizer gives a 128 px version of a few KB.
+            small = f"https://a.espncdn.com/combiner/i?img={urlsplit(url).path}&h=128&w=128"
+            try:
+                async with self._session.get(small) as resp:
+                    resp.raise_for_status()
+                    image = await resp.read()
+                emoji = await self.bot.create_application_emoji(name=f"nfl_{abbr.lower()}", image=image)
+            except Exception as e:
+                self._logo_failed.add(abbr)
+                log.warning("Couldn't create logo emoji for %s: %r", abbr, e)
+                continue
+            self._logos[abbr] = str(emoji)
+            log.info("Created logo emoji for %s", abbr)
 
     # ------------------------------------------------------------ Discord
 
@@ -146,7 +185,7 @@ class Scoreboard(commands.Cog):
         team = await conf.team()
         # Two cards in one message: the highlighted team's game, then everyone else.
         # Editing both is still a single API call.
-        embeds = espn.build_embeds(self._week, team, datetime.now(timezone.utc))
+        embeds = espn.build_embeds(self._week, team, datetime.now(timezone.utc), self._logos)
         # Compare everything except the footer, whose "last updated" time always changes.
         content = repr([{k: v for k, v in e.to_dict().items() if k != "footer"} for e in embeds])
         if not force and self._last_content.get(guild.id) == content:

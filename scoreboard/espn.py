@@ -463,8 +463,20 @@ def build_team_embed(game: Optional[Game], team_abbr: str, week_label: str) -> d
 # ---------------------------------------------------------------- league card
 
 
-def build_league_embed(games: list[Game], week_label: str, updated: datetime) -> discord.Embed:
-    """Everyone else: live games with score + ball + down & distance, upcoming by slot, finals."""
+def build_league_embed(
+    games: list[Game], week_label: str, updated: datetime, logos: Optional[dict[str, str]] = None
+) -> discord.Embed:
+    """Everyone else: live games with score + ball + down & distance, upcoming by slot, finals.
+
+    `logos` maps team abbreviations to logo emoji (e.g. "MIN" -> "<:nfl_min:123>").
+    Live and final games show logo + abbreviation + score; upcoming games show
+    logos only. Any team without a logo falls back to plain text.
+    """
+    logos = logos or {}
+
+    def logo(abbr: str) -> str:
+        return f"{logos[abbr]} " if abbr in logos else ""
+
     lines: list[str] = []
 
     live = sorted((g for g in games if g.state == "in"), key=lambda g: g.kickoff)
@@ -472,7 +484,7 @@ def build_league_embed(games: list[Game], week_label: str, updated: datetime) ->
         lines.append("**🔴 Live**")
         for g in live:
             away, home = _scores(g)
-            lines.append(f"{away} {_sep(g)} {home} · {clock_text(g)}")
+            lines.append(f"{logo(g.away.abbr)}{away} {_sep(g)} {logo(g.home.abbr)}{home} · {clock_text(g)}")
             if ball_text(g):
                 lines.append(f"└ {ball_text(g)}")
         lines.append("")
@@ -484,10 +496,16 @@ def build_league_embed(games: list[Game], week_label: str, updated: datetime) ->
         slots.setdefault(clock_text(g), []).append(g)
     for slot, slot_games in slots.items():
         lines.append(f"**🗓️ {slot}**")
-        # Fixed-width "chips", three per line, so a busy 12:00 slot stays compact and lined up.
-        chips = [f"`{f'{g.away.abbr:>3} {_sep(g)} {g.home.abbr}':<10}`" for g in slot_games]
+        # Logos only for upcoming games, three matchups per line. A game missing a
+        # logo falls back to a fixed-width text "chip" like `LAC @ BUF`.
+        chips = []
+        for g in slot_games:
+            if g.away.abbr in logos and g.home.abbr in logos:
+                chips.append(f"{logos[g.away.abbr]} {_sep(g)} {logos[g.home.abbr]}")
+            else:
+                chips.append(f"`{f'{g.away.abbr:>3} {_sep(g)} {g.home.abbr}':<10}`")
         for i in range(0, len(chips), 3):
-            lines.append(" ".join(chips[i:i + 3]))
+            lines.append("\u2003".join(chips[i:i + 3]))  # wide spaces between matchups
         lines.append("")
 
     finals = sorted((g for g in games if g.state == "post"), key=lambda g: g.kickoff)
@@ -496,7 +514,7 @@ def build_league_embed(games: list[Game], week_label: str, updated: datetime) ->
         for g in finals:
             away, home = _scores(g)
             ot = " (OT)" if "OT" in g.short_detail else ""
-            lines.append(f"{away} {_sep(g)} {home}{ot}")
+            lines.append(f"{logo(g.away.abbr)}{away} {_sep(g)} {logo(g.home.abbr)}{home}{ot}")
         lines.append("")
 
     description = "\n".join(lines).strip() or "No other games this week."
@@ -508,7 +526,9 @@ def build_league_embed(games: list[Game], week_label: str, updated: datetime) ->
     return embed
 
 
-def build_embeds(week: Optional[Week], team: str, updated: datetime) -> list[discord.Embed]:
+def build_embeds(
+    week: Optional[Week], team: str, updated: datetime, logos: Optional[dict[str, str]] = None
+) -> list[discord.Embed]:
     """Both cards for the scoreboard message. `week` is None if we've never had data."""
     if week is None:
         embed = discord.Embed(
@@ -523,7 +543,7 @@ def build_embeds(week: Optional[Week], team: str, updated: datetime) -> list[dis
     others = [g for g in week.games if g is not ours]
     return [
         build_team_embed(ours, team, week.label),
-        build_league_embed(others, week.label, updated),
+        build_league_embed(others, week.label, updated, logos),
     ]
 
 
