@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme
-!load scoreboard embedfix emotesteal reactking modslash remindme
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants
+!load scoreboard embedfix emotesteal reactking modslash remindme chants
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking modslash remindme
+!reload scoreboard embedfix emotesteal reactking modslash remindme chants
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -237,3 +237,18 @@ to a year. Up to 25 active reminders per person. If the original message was
 deleted, the reminder posts in the channel instead. Setup (bot owner):
 `!slash enable remindme`, `!slash enable reminders`,
 `!slash enable "Remind me about this" message`, then `!slash sync`.
+
+## chants
+
+When someone types a chant acronym anywhere in a message (any capitalisation,
+whole word only), the bot replies with the full chant, pinging nobody:
+FTP → Fuck the Packers, FTB → Fuck the Bears, FTL → Fuck the Lions,
+FTR → Fuck the Refs, FSP → Fuck Sean Payton. Several in one message get one
+reply. At most 3 replies per channel per minute. Bots and link reposts are ignored.
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `!chant list` | Everyone | Show all chants |
+| `!chant add <acronym> <phrase>` | Admin | Add or change one, e.g. `!chant add FTG Fuck the Giants` |
+| `!chant remove <acronym>` | Admin | Remove one |
+| `!chant toggle` | Admin | Turn chant replies on/off |

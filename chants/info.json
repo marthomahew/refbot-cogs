@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "chants",
+    "short": "Auto-reply to chant acronyms like FTP.",
+    "description": "When someone types FTP, FTB, FTL, FTR or FSP anywhere in a message, the bot replies with the full chant (FTP → Fuck the Packers). Up to 3 replies per channel per minute. Admins can add or remove chants from Discord.",
+    "install_msg": "Loaded? Try typing FTP. `[p]chant list` shows all chants; admins can `[p]chant add FTG Fuck the Giants`.",
+    "tags": ["fun", "autoresponder", "football"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}
