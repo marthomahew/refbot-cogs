@@ -90,18 +90,22 @@ class ModSlash(commands.Cog):
         command_name: str,
         *args,
         prepare: Optional[Callable[[commands.Context], Awaitable[None]]] = None,
+        public: bool = False,
+        header: Optional[str] = None,
         **kwargs,
     ) -> None:
         """Run an existing Red text command on behalf of a slash command.
 
         `prepare(ctx)` can adjust the context first (used by /alert).
+        Replies are private ("Only you can see this") unless `public` (used by
+        /8ball); `header` is added above the first reply (e.g. the question).
         """
         command = self.bot.get_command(command_name)
         if command is None or command.cog is None:
             cog = {"warn": "Warnings", "warnings": "Warnings", "unwarn": "Warnings",
                    "mute": "Mutes", "unmute": "Mutes", "timeout": "Mutes",
                    "mutechannel": "Mutes", "unmutechannel": "Mutes",
-                   "alert": "Defender"}.get(command_name, "Mod")
+                   "alert": "Defender", "8": "General"}.get(command_name, "Mod")
             await interaction.response.send_message(
                 f"That needs Red's **{cog}** cog, which isn't loaded (`!load {cog.lower()}`).", ephemeral=True
             )
@@ -109,7 +113,7 @@ class ModSlash(commands.Cog):
 
         # Mod actions can take a few seconds (DMs, modlog); Discord only waits 3.
         # ephemeral = "Only you can see this": confirmations stay private to the mod.
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=not public, thinking=True)
         ctx = await self.bot.get_context(interaction)
         ctx.command = command
         ctx.invoked_with = command.name
@@ -126,11 +130,13 @@ class ModSlash(commands.Cog):
         replied = False
         original_send = ctx.send
 
-        async def tracked_send(*a, **kw):
+        async def tracked_send(content=None, **kw):
             nonlocal replied
+            if header and not replied:
+                content = f"{header}\n{content}" if content else header
             replied = True
-            kw["ephemeral"] = True
-            return await original_send(*a, **kw)
+            kw["ephemeral"] = not public
+            return await original_send(content, **kw)
 
         ctx.send = tracked_send
 
@@ -360,6 +366,18 @@ class ModSlash(commands.Cog):
     @app_commands.default_permissions(manage_roles=True)
     async def unmutechannel(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
         await self._run(interaction, "unmutechannel", [member], reason=reason)
+
+    # ------------------------------------------------------------ General (fun)
+
+    @app_commands.command(name="8ball", description="Ask the Magic 8-Ball a question")
+    @app_commands.describe(question="Your question (end it with a ?)")
+    @app_commands.guild_only()
+    async def eightball(self, interaction: discord.Interaction, question: str):
+        # Runs Red's own !8ball (General cog), so the answers and the "?" rule are
+        # the same. Public, and the question is shown because slash commands hide
+        # what was typed. No mentions from the question can ping anyone.
+        question = discord.utils.escape_mentions(question.strip())[:200]
+        await self._run(interaction, "8", question=question, public=True, header=f"🎱 **{question}**")
 
     # ------------------------------------------------------------ Defender
 

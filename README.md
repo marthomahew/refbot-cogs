@@ -200,6 +200,7 @@ work exactly like the `!` versions.
 | `/mutechannel member [duration] [reason]` | `!mutechannel` (this channel only) |
 | `/unmutechannel member [reason]` | `!unmutechannel` |
 | `/slowmode interval` | `!slowmode` |
+| `/8ball question` | Red's `!8ball` (General cog), **public**, with the question shown above the answer |
 | `/alert` | Defender's `!alert`: pings staff (helper roles like Assistant Coach, or mods). Once per channel every 2 minutes |
 | Right-click a message → Apps → **Alert staff** | Same as `/alert`, but the staff ping links to that exact message. Enable with `!slash enable "Alert staff" message` |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's) |
