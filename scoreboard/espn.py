@@ -116,6 +116,8 @@ class Game:
     weather: str = ""
     line: str = ""  # betting line, e.g. "MIN -1.5 · O/U 42.5"
     headline: str = ""  # recap headline after the game
+    highlights_url: str = ""  # ESPN's highlight video (after the game)
+    gamecast_url: str = ""  # ESPN's live game page
     leaders: list[Leader] = field(default_factory=list)
 
     def involves(self, abbr: str) -> bool:
@@ -254,6 +256,12 @@ def _parse_game(event: dict) -> Game:
     game.weather = _optional("weather", _parse_weather, event, comp) or ""
     game.line = _optional("odds", _parse_line, comp) or ""
     game.headline = _optional("headline", lambda: (comp.get("headlines") or [{}])[0].get("shortLinkText", "")) or ""
+    game.highlights_url = _optional(
+        "highlights", lambda: (comp.get("highlights") or [{}])[0].get("links", {}).get("web", {}).get("href", "")
+    ) or ""
+    game.gamecast_url = next(
+        (link.get("href", "") for link in event.get("links") or [] if "summary" in (link.get("rel") or [])), ""
+    )
     # Before kickoff ESPN's "leaders" are season stats, which would be confusing
     # next to a 0-0 score, so only keep them once the game has started.
     if game.state != "pre":
@@ -463,71 +471,72 @@ def build_team_embed(game: Optional[Game], team_abbr: str, week_label: str) -> d
 # ---------------------------------------------------------------- league card
 
 
-def build_league_embed(
-    games: list[Game], week_label: str, updated: datetime, logos: Optional[dict[str, str]] = None
-) -> discord.Embed:
-    """Everyone else: live games with score + ball + down & distance, upcoming by slot, finals.
+def _card_status(game: Game) -> str:
+    """The title of a game's card: "✅ Final", "🔴 Q3 5:21" or "🗓️ Sun 9/27 · 12:00 PM CT"."""
+    if game.state == "post":
+        return f"✅ {clock_text(game)}"
+    if game.state == "in":
+        return f"🔴 {clock_text(game)}"
+    return f"🗓️ {clock_text(game)}"
 
-    `logos` maps team abbreviations to logo emoji (e.g. "MIN" -> "<:nfl_min:123>").
-    Live and final games show logo + abbreviation + score; upcoming games show
-    logos only. Any team without a logo falls back to plain text.
+
+def build_league_embed(
+    games: list[Game],
+    week_label: str,
+    updated: datetime,
+    logos: Optional[dict[str, str]] = None,
+    youtube: Optional[dict[str, str]] = None,
+) -> discord.Embed:
+    """Everyone else, as a grid of small game cards (three per row on desktop).
+
+    Each card: status as its title, then logo + team name (+ score) for each team,
+    the possession line while live, and a link: Highlights for finished games
+    (NFL YouTube if we found it, else ESPN's video), Gamecast otherwise.
+    `logos` maps abbreviations to logo emoji; `youtube` maps ESPN game ids to
+    YouTube highlight links. Missing logos just show the team name.
     """
     logos = logos or {}
+    youtube = youtube or {}
 
-    def logo(abbr: str) -> str:
-        return f"{logos[abbr]} " if abbr in logos else ""
+    def team_line(game: Game, team: Team, other: Team) -> str:
+        logo = f"{logos[team.abbr]} " if team.abbr in logos else ""
+        if game.state == "pre":
+            return f"{logo}{team.short_name}"
+        text = f"{team.short_name} {team.score}"
+        try:
+            if int(team.score) > int(other.score):
+                text = f"**{text}**"  # leader / winner in bold
+        except ValueError:
+            pass
+        return f"{logo}{text}"
 
-    lines: list[str] = []
+    def link(game: Game) -> str:
+        if game.state == "post":
+            url = youtube.get(game.id) or game.highlights_url or game.gamecast_url
+            return f"[Highlights]({url})" if url else ""
+        return f"[Gamecast]({game.gamecast_url})" if game.gamecast_url else ""
 
-    live = sorted((g for g in games if g.state == "in"), key=lambda g: g.kickoff)
-    if live:
-        lines.append("**🔴 Live**")
-        for g in live:
-            away, home = _scores(g)
-            lines.append(f"{logo(g.away.abbr)}{away} {_sep(g)} {logo(g.home.abbr)}{home} · {clock_text(g)}")
-            if ball_text(g):
-                lines.append(f"└ {ball_text(g)}")
-        lines.append("")
-
-    # Upcoming: one heading per kickoff slot so the date isn't repeated on every line.
-    upcoming = sorted((g for g in games if g.state == "pre"), key=lambda g: g.kickoff)
-    slots: dict[str, list[Game]] = {}
-    for g in upcoming:
-        slots.setdefault(clock_text(g), []).append(g)
-    for slot, slot_games in slots.items():
-        lines.append(f"**🗓️ {slot}**")
-        # Logos only for upcoming games, three matchups per line. A game missing a
-        # logo falls back to a fixed-width text "chip" like `LAC @ BUF`.
-        chips = []
-        for g in slot_games:
-            if g.away.abbr in logos and g.home.abbr in logos:
-                chips.append(f"{logos[g.away.abbr]} {_sep(g)} {logos[g.home.abbr]}")
-            else:
-                chips.append(f"`{f'{g.away.abbr:>3} {_sep(g)} {g.home.abbr}':<10}`")
-        for i in range(0, len(chips), 3):
-            lines.append("\u2003".join(chips[i:i + 3]))  # wide spaces between matchups
-        lines.append("")
-
-    finals = sorted((g for g in games if g.state == "post"), key=lambda g: g.kickoff)
-    if finals:
-        lines.append("**✅ Final**")
-        for g in finals:
-            away, home = _scores(g)
-            ot = " (OT)" if "OT" in g.short_detail else ""
-            lines.append(f"{logo(g.away.abbr)}{away} {_sep(g)} {logo(g.home.abbr)}{home}{ot}")
-        lines.append("")
-
-    description = "\n".join(lines).strip() or "No other games this week."
-    if len(description) > 4000:  # Discord's limit is 4096; should never get close
-        description = description[:3990] + "\n…"
-
-    embed = discord.Embed(title=f"🏈 Around the NFL · {week_label}", description=description, color=LEAGUE_COLOR)
+    order = {"in": 0, "pre": 1, "post": 2}  # live first, then upcoming, then finals
+    embed = discord.Embed(title=f"🏈 Around the NFL · {week_label}", color=LEAGUE_COLOR)
+    for game in sorted(games, key=lambda g: (order.get(g.state, 3), g.kickoff))[:25]:  # Discord's field limit
+        lines = [team_line(game, game.away, game.home), team_line(game, game.home, game.away)]
+        if ball_text(game):
+            lines.append(ball_text(game))
+        if link(game):
+            lines.append(link(game))
+        embed.add_field(name=_card_status(game), value="\n".join(lines)[:1024], inline=True)
+    if not games:
+        embed.description = "No other games this week."
     embed.set_footer(text=f"Last updated {central_time_text(updated)} · Data: ESPN")
     return embed
 
 
 def build_embeds(
-    week: Optional[Week], team: str, updated: datetime, logos: Optional[dict[str, str]] = None
+    week: Optional[Week],
+    team: str,
+    updated: datetime,
+    logos: Optional[dict[str, str]] = None,
+    youtube: Optional[dict[str, str]] = None,
 ) -> list[discord.Embed]:
     """Both cards for the scoreboard message. `week` is None if we've never had data."""
     if week is None:
@@ -543,7 +552,7 @@ def build_embeds(
     others = [g for g in week.games if g is not ours]
     return [
         build_team_embed(ours, team, week.label),
-        build_league_embed(others, week.label, updated, logos),
+        build_league_embed(others, week.label, updated, logos, youtube),
     ]
 
 

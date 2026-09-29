@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlsplit
@@ -21,7 +22,7 @@ import discord
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 
-from . import espn
+from . import espn, youtube
 
 log = logging.getLogger("red.refbot.scoreboard")
 
@@ -32,6 +33,9 @@ class Scoreboard(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=0x5C0BE0A2D1, force_registration=True)
+        # ESPN game id -> NFL YouTube highlight link, saved as they're found
+        # (the YouTube feed only shows the latest 15 videos, so we can't look back later).
+        self.config.register_global(youtube_highlights={})
         self.config.register_guild(
             channel_id=None,  # where the scoreboard lives
             message_id=None,  # the message we keep editing
@@ -53,6 +57,8 @@ class Scoreboard(commands.Cog):
         self._logos: dict[str, str] = {}
         self._logos_loaded = False
         self._logo_failed: set[str] = set()  # don't retry a failed logo every minute
+        self._youtube: Optional[dict[str, str]] = None  # loaded from config on first use
+        self._youtube_checked = 0.0  # when we last read the YouTube feed
         self._last_content: dict[int, str] = {}  # guild id -> what we last showed
         self._warned: set[str] = set()  # one-time warnings already logged
         self.interval, self.interval_reason = 300, "starting up"
@@ -130,6 +136,34 @@ class Scoreboard(commands.Cog):
             self._fetch_failing = False
         self._week = week
         await self._ensure_logos(week)
+        await self._check_youtube(week)
+
+    async def _check_youtube(self, week: "espn.Week") -> None:
+        """Every ~10 minutes, while finished games are missing a YouTube highlight
+        link, read the NFL channel's feed and save any new matches."""
+        if self._youtube is None:
+            self._youtube = await self.config.youtube_highlights()
+        missing = [g for g in week.games if g.state == "post" and g.id not in self._youtube]
+        if not missing or time.monotonic() - self._youtube_checked < 600:
+            return
+        self._youtube_checked = time.monotonic()
+        try:
+            async with self._session.get(youtube.NFL_FEED_URL) as resp:
+                resp.raise_for_status()
+                videos = youtube.parse_feed(await resp.text())
+        except Exception as e:
+            log.info("Couldn't read the NFL YouTube feed: %r", e)  # ESPN's link is used meanwhile
+            return
+        found = youtube.match_highlights(videos, missing)
+        if not found:
+            return
+        self._youtube.update(found)
+        # Keep only this week's games plus a little history, so the saved list stays tiny.
+        current = {g.id for g in week.games}
+        if len(self._youtube) > 64:
+            self._youtube = {k: v for k, v in self._youtube.items() if k in current}
+        await self.config.youtube_highlights.set(self._youtube)
+        log.info("Found YouTube highlights for %s game(s)", len(found))
 
     async def _ensure_logos(self, week: "espn.Week") -> None:
         """Make sure every team playing this week has a logo emoji. Runs after each
@@ -185,7 +219,7 @@ class Scoreboard(commands.Cog):
         team = await conf.team()
         # Two cards in one message: the highlighted team's game, then everyone else.
         # Editing both is still a single API call.
-        embeds = espn.build_embeds(self._week, team, datetime.now(timezone.utc), self._logos)
+        embeds = espn.build_embeds(self._week, team, datetime.now(timezone.utc), self._logos, self._youtube)
         # Compare everything except the footer, whose "last updated" time always changes.
         content = repr([{k: v for k, v in e.to_dict().items() if k != "footer"} for e in embeds])
         if not force and self._last_content.get(guild.id) == content:

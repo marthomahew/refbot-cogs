@@ -31,11 +31,15 @@ scoreboard data. It has two cards:
   shows records, TV, venue, betting line and weather. During and after the game it shows
   the score, clock, who has the ball and down & distance, the last play, scoring by
   quarter, stat leaders, and a recap headline when it's over.
-- **Around the NFL card** with every other game: live scores with clock, ball and
-  down & distance; upcoming games grouped by kickoff time; and final scores. Team
-  logos: live and final games show logo + abbreviation + score, upcoming games show
-  logos only. The logos are the bot's own emoji (created automatically from ESPN,
-  no server emoji slots used); any missing logo falls back to text.
+- **Around the NFL card**: a grid of game cards (three per row on desktop, one per
+  row on mobile), live games first, then upcoming, then finals. Each card is titled
+  with its status (🔴 Q3 5:21 / 🗓️ kickoff time / ✅ Final) and shows team logos,
+  names and scores (leader in bold), the possession line while live, and a link:
+  **Highlights** for finished games (the NFL's YouTube video when found, else
+  ESPN's), **Gamecast** otherwise. Logos are the bot's own emoji, created
+  automatically from ESPN (no server emoji slots used). YouTube links come from
+  the NFL channel's public feed, checked every ~10 minutes while finished games
+  lack one.
 
 It updates every minute while games are live, every 15 minutes on game days, and hourly
 otherwise. If ESPN is down, the last good scoreboard stays up.
