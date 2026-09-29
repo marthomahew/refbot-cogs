@@ -132,6 +132,10 @@ class ReactKing(commands.Cog):
             statbot_role=None,
             roles_run=None,  # ISO time of the award slot whose roles were handed out
             card=None,  # [channel id, message id] of this week's public card (to add role lines later)
+            # Award priority below Statbot's top chatter: "reactking" and award emoji
+            # strings, highest first. Anything missing is appended (React King first,
+            # then awards in the order they were added).
+            priority=[],
             # [{"emoji": "<:kek:123>" or "😂", "role_id": int or None}, ...]
             awards=[],
             day=0,  # 0 = Monday
@@ -515,10 +519,10 @@ class ReactKing(commands.Cog):
         self, guild: discord.Guild, conf: dict, progress: Optional[Callable[[int, int], Awaitable[None]]] = None
     ) -> dict:
         """Tally the past 7 days for every award (the slow part)."""
-        awards = [(self._resolve_emoji(guild, a["emoji"]), a.get("role_id")) for a in conf["awards"]]
-        awards = [(t, r) for t, r in awards if t is not None]
+        awards = [(self._resolve_emoji(guild, a["emoji"]), a.get("role_id"), a["emoji"]) for a in conf["awards"]]
+        awards = [(t, r, k) for t, r, k in awards if t is not None]
         tallies = await self._count(
-            guild, [t for t, _ in awards], datetime.now(timezone.utc) - timedelta(days=7), progress=progress
+            guild, [t for t, _, _ in awards], datetime.now(timezone.utc) - timedelta(days=7), progress=progress
         )
         overall = None
         if conf.get("overall") and tallies:
@@ -531,6 +535,24 @@ class ReactKing(commands.Cog):
         staff = {member for member in everyone if await self._is_staff(guild, member)}
         return {"awards": awards, "tallies": tallies, "overall": overall, "staff": staff, "stats": dict(self.last_scan)}
 
+    @staticmethod
+    def _priority_keys(conf: dict) -> list[str]:
+        """Award keys, highest priority first: "reactking" and each award's emoji."""
+        valid = ["reactking"] + [a["emoji"] for a in conf["awards"]]
+        saved = [k for k in conf.get("priority", []) if k in valid]
+        return saved + [k for k in valid if k not in saved]
+
+    def _entries(self, conf: dict, results: dict) -> list[dict]:
+        """This week's awards in priority order, each with its tally and role."""
+        by_key = {}
+        if results["overall"] is not None:
+            by_key["reactking"] = {"label": "👑 React King", "full_label": "👑 Overall", "target": "total",
+                                   "tally": results["overall"], "role_id": conf.get("overall_role_id")}
+        for (target, role_id, key), tally in zip(results["awards"], results["tallies"]):
+            by_key[key] = {"label": f"{target} King", "full_label": f"{target}", "target": target,
+                           "tally": tally, "role_id": role_id}
+        return [by_key[k] for k in self._priority_keys(conf) if k in by_key]
+
     async def _plan_roles(self, guild: discord.Guild, conf: dict, results: dict, chat_king: set[int]) -> list[dict]:
         """Who gets which role, one award per person, in priority order:
         Statbot's top chatter (already has theirs) -> React King (if enabled) -> the
@@ -539,14 +561,9 @@ class ReactKing(commands.Cog):
         award this week. Ties for first share the role."""
         chat_role = guild.get_role(conf["statbot_role"]) if conf["statbot_role"] else None
         taken: dict[int, str] = {m: (chat_role.name if chat_role else "top chatter") for m in chat_king}
-        chain = []
-        if results["overall"] is not None:
-            chain.append(("👑 React King", "total", results["overall"], conf.get("overall_role_id")))
-        for (target, role_id), tally in zip(results["awards"], results["tallies"]):
-            chain.append((f"{target} King", target, tally, role_id))
-
         plan = []
-        for label, target, tally, role_id in chain:
+        for entry in self._entries(conf, results):
+            label, target, tally, role_id = entry["label"], entry["target"], entry["tally"], entry["role_id"]
             role = guild.get_role(role_id) if role_id else None
             ranking = tally.ranking(len(tally.totals), exclude=results["staff"])
             eligible = [(m, c) for m, c in ranking if m not in taken]
@@ -570,18 +587,14 @@ class ReactKing(commands.Cog):
                     notes.append(note)
         return notes
 
-    def _cards(self, results: dict, plan: Optional[list[dict]] = None) -> tuple[discord.Embed, discord.Embed]:
+    def _cards(self, conf: dict, results: dict, plan: Optional[list[dict]] = None) -> tuple[discord.Embed, discord.Embed]:
         """The public card (staff left out, optional role lines) and the full mod card."""
         staff = results["staff"]
         embed = discord.Embed(title="👑 Weekly Reaction Kings", color=discord.Color.gold())
         full = discord.Embed(title="🛡️ Weekly Reaction Kings: full results (staff included)", color=discord.Color.dark_grey())
-        sections = []
-        if results["overall"] is not None:
-            sections.append(("👑 React King", "👑 Overall", "total", results["overall"]))
-        for (target, _), tally in zip(results["awards"], results["tallies"]):
-            sections.append((f"{target} King", f"{target}", target, tally))
         planned = {item["label"]: item for item in plan or []}
-        for label, full_label, target, tally in sections:
+        for entry in self._entries(conf, results):  # priority order, highest first
+            label, full_label, target, tally = entry["label"], entry["full_label"], entry["target"], entry["tally"]
             full_lines = self._ranking_lines(tally, target, 5, staff=staff) or ["Nobody this week."]
             full.add_field(name=full_label, value="\n".join(full_lines)[:1024], inline=False)
 
@@ -608,7 +621,7 @@ class ReactKing(commands.Cog):
         """Post the public card (no roles yet) and the full mod card."""
         channel = guild.get_channel(conf["awards_channel"])
         mod_channel = guild.get_channel(conf["mod_channel"]) if conf["mod_channel"] else None
-        embed, full = self._cards(results)
+        embed, full = self._cards(conf, results)
         card = None
         if channel is not None:
             try:
@@ -624,7 +637,7 @@ class ReactKing(commands.Cog):
 
     async def _finish_card(self, guild: discord.Guild, conf: dict, results: dict, plan: list[dict]) -> None:
         """Add the role lines to this week's card and congratulate the winners."""
-        embed, _ = self._cards(results, plan)
+        embed, _ = self._cards(conf, results, plan)
         winners = sorted({k for item in plan for k in item["kings"]})
         card_ref = await self.config.guild(guild).card()
         card = None
@@ -669,7 +682,7 @@ class ReactKing(commands.Cog):
         chat_king = self._role_holders(guild, conf["statbot_role"])
         plan = await self._plan_roles(guild, conf, results, chat_king)
         notes = await self._apply_roles(guild, plan) if mode == "testrun" else []
-        embed, full = self._cards(results, plan)
+        embed, full = self._cards(conf, results, plan)
         if mode == "testrun":
             content = "-# Test run: roles were given/removed for real. Nobody pinged, nothing posted publicly."
         else:
@@ -752,6 +765,45 @@ class ReactKing(commands.Cog):
             if channel.id in excluded:
                 excluded.remove(channel.id)
         await ctx.send(f"{channel.mention} will be counted again.", allowed_mentions=discord.AllowedMentions.none())
+
+    @awards.command(name="priority")
+    async def awards_priority(self, ctx: commands.Context, award: Optional[str] = None, position: Optional[int] = None):
+        """Show or change which award wins when someone tops several.
+
+        `priority` shows the order. `priority :doubt: 1` moves an award to #1;
+        use `reactking` for React King. Statbot's top chatter is always above all of
+        them, because Refbot can't take away Statbot's role.
+        """
+        conf_group = self.config.guild(ctx.guild)
+        conf = await conf_group.all()
+        keys = self._priority_keys(conf)
+
+        if award is not None:
+            key = "reactking" if award.lower() in ("reactking", "react_king", "overall") else None
+            if key is None:
+                target = self._resolve_emoji(ctx.guild, award)
+                key = str(target) if target else award
+            if key not in keys:
+                await ctx.send(f"`{award}` isn't one of the awards. See `{ctx.clean_prefix}awards priority`.")
+                return
+            if position is None or not 1 <= position <= len(keys):
+                await ctx.send(f"Give a position from 1 to {len(keys)}, e.g. `{ctx.clean_prefix}awards priority {award} 1`.")
+                return
+            keys.remove(key)
+            keys.insert(position - 1, key)
+            await conf_group.priority.set(keys)
+            conf["priority"] = keys
+
+        roles = {a["emoji"]: a.get("role_id") for a in conf["awards"]}
+        roles["reactking"] = conf.get("overall_role_id")
+        chat_role = ctx.guild.get_role(conf["statbot_role"]) if conf["statbot_role"] else None
+        lines = ["**Award priority** (someone who tops several gets the highest one):",
+                 f"**0.** Statbot's top chatter" + (f" · {chat_role.mention}" if chat_role else "") + " · always first"]
+        for n, key in enumerate(self._priority_keys(conf), start=1):
+            name = "👑 React King" + ("" if conf.get("overall") else " (off)") if key == "reactking" else f"{key} King"
+            role = ctx.guild.get_role(roles.get(key)) if roles.get(key) else None
+            lines.append(f"**{n}.** {name}" + (f" · {role.mention}" if role else ""))
+        await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
 
     @awards.command(name="statbot")
     async def awards_statbot(self, ctx: commands.Context, channel: str, role: Optional[discord.Role] = None):
@@ -882,8 +934,7 @@ class ReactKing(commands.Cog):
             lines.append(f"{a['emoji']} King" + (f" → {role.mention}" if role else ""))
         if not conf["awards"]:
             lines.append("none yet, add one with `!awards add :kek:`")
-        lines.append("-# Priority (one award per person): Statbot's top chatter → React King (if on) → "
-                     "the awards above, top to bottom")
+        lines.append(f"-# One award per person; see the priority order with `{ctx.clean_prefix}awards priority`")
         if conf["overall"]:
             role = ctx.guild.get_role(conf["overall_role_id"]) if conf["overall_role_id"] else None
             lines.append("👑 Overall React King" + (f" → {role.mention}" if role else ""))

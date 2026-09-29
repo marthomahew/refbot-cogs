@@ -144,6 +144,7 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 | `!reactking :emoji: [period] [#channel]` | Everyone | Top 10 members by that reaction, plus the most-reacted message |
 | `!awards channel #channel` | Admin | Where the weekly awards post |
 | `!awards modchannel #channel` | Admin | Private channel for full results with admins/mods included |
+| `!awards priority [award] [position]` | Admin | Show or change which award wins when someone tops several (`reactking` for React King) |
 | `!awards statbot #channel @role` / `off` | Admin | Link Statbot's weekly top-chatter announcement (and its role, as a fallback) |
 | `!awards exclude #channel` | Admin | Never read that channel or its threads, for awards or `!reactking` (the command message is deleted so the name doesn't linger) |
 | `!awards unexclude #channel` | Admin | Count it again |
@@ -174,8 +175,10 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
    with `!awards statbot`), or 15 minutes later if it doesn't, the bot hands out the
    roles and adds "🏅 role → @winner" lines to the card, then congratulates them.
 
-**One award per person**, in priority order: Statbot's top chatter → 👑 React King
-(if enabled) → the emoji awards in the order they were added. Each role goes to the
+**One award per person**, in priority order: Statbot's top chatter (always first,
+since Refbot can't take away Statbot's role) → then the order set with
+`!awards priority` (default: 👑 React King if enabled, then the emoji awards in the
+order they were added). The card lists awards in the same order. Each role goes to the
 highest-ranked person on that leaderboard who doesn't already hold a higher award
 that week (the card says who was skipped and why). Ties share a role; a week with
 no eligible winner takes the role back. Admins and mods (Red's admin/mod roles,
