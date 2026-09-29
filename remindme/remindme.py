@@ -281,8 +281,14 @@ class RemindMe(commands.Cog):
         if not mine:
             await ctx.send("You have no reminders set.", ephemeral=True)
             return
+        def jump(r: dict) -> str:
+            # Link to the message the reminder will reply to (if any).
+            if not r["reply_to"]:
+                return ""
+            return f" · [jump](https://discord.com/channels/{ctx.guild.id}/{r['channel']}/{r['reply_to']})"
+
         lines = [
-            f"**{n}.** <t:{int(r['due'])}:R> in <#{r['channel']}>" + (f": {r['note'][:80]}" if r["note"] else "")
+            f"**{n}.** <t:{int(r['due'])}:R> in <#{r['channel']}>{jump(r)}" + (f": {r['note'][:80]}" if r["note"] else "")
             for n, r in enumerate(mine, start=1)
         ]
         lines.append(f"-# Cancel one with `{ctx.clean_prefix}reminders cancel <number>`")
