@@ -6,103 +6,103 @@ Keep this in step with the cogs (and README.md) when commands change.
 
 # (key, dropdown label, emoji, one-line description, mods only?)
 TOPICS = [
-    ("scoreboard", "Scoreboard", "🏈", "the live scores thing", False),
-    ("links", "Link fixer", "🔗", "why your tweet got reposted", False),
-    ("report", "Reporting spam", "🛎️", "flag scam bots, get a mod", False),
-    ("reminders", "Reminders", "⏰", "yes, !remindme actually works now", False),
-    ("chants", "Chants", "📣", "FTP etc", False),
-    ("awards", "Weekly awards", "👑", "kekkest and friends", False),
-    ("emotes", "Emotes & pfps", "😀", "steal emotes, grab full-size pfps", False),
-    ("fun", "8-ball", "🎱", "ask it things", False),
-    ("faq", "FAQ", "❓", "\"why did the bot do that\"", False),
-    ("mods", "Mod stuff", "🛠️", "for mods", True),
+    ("scoreboard", "Scoreboard", "🏈", "How the live scoreboard works", False),
+    ("links", "Link fixer", "🔗", "Why your links get reposted", False),
+    ("report", "Reporting spam", "🛎️", "Flagging scam bots and getting a mod", False),
+    ("reminders", "Reminders", "⏰", "Setting and managing reminders", False),
+    ("chants", "Chants", "📣", "FTP and the rest", False),
+    ("awards", "Weekly awards", "👑", "The Monday reaction awards", False),
+    ("emotes", "Emotes and pfps", "😀", "Saving emotes and full size profile pictures", False),
+    ("fun", "8-ball", "🎱", "Ask it a question", False),
+    ("faq", "FAQ", "❓", "Common questions about the bot", False),
+    ("mods", "Mod stuff", "🛠️", "Mod and admin commands", True),
 ]
 
 TEXT = {
     "scoreboard": """\
-## 🏈 Scoreboard
-The pinned scoreboard updates itself. Vikings game up top, everyone else below: live scores, who has the ball, kickoff times, and highlight links once games are over.
+## Scoreboard
+The scoreboard updates itself. The Vikings game is at the top, and every other game is below it with live scores, who has the ball, kickoff times, and highlight links once games are over.
 
-Every minute during games, less often otherwise. Scores come from ESPN so they can trail the TV a bit.
+It updates every minute during games and less often otherwise. Scores come from ESPN, so they can run a little behind the broadcast.
 
-New week shows up Wednesday at 3pm Central, so you get a couple extra days to enjoy (or suffer through) the last one.""",
+The new week shows up Wednesday at 3pm Central, so last week's results stay up until then.""",
 
     "links": """\
-## 🔗 Link fixer
-Post a twitter/x, insta, tiktok or reddit link and the bot deletes it and reposts it as you with a link that actually plays in Discord. It also strips the tracking junk from share links so nobody can see who shared it.
+## Link fixer
+When you post a Twitter/X, Instagram, TikTok or Reddit link, the bot reposts your message as you with a link that actually plays in Discord. It also strips the tracking codes from share links, so nobody can tell who shared it.
 
-Want yours gone? React 🗑️ on the repost.
-Don't want it fixed in the first place? Post the fxtwitter-style link yourself, or put the link in `<` `>`.
+If you want a repost gone, react 🗑️ on it. If you don't want a link fixed in the first place, post the fixed link yourself (fxtwitter and so on) or wrap it in `<` `>`.
 
-`!links` shows everything you've shared (or `!links @someone`).""",
+`!links` shows everything you've shared, or `!links @someone` for someone else.""",
 
     "report": """\
-## 🛎️ Reporting spam
-See a scam bot ("add me", "dm me", free nitro, etc)? React to the message with {report}. Your reaction vanishes right away so nobody knows it was you, and the mods get a heads up.
+## Reporting spam
+If you see a scam bot (the "add me" / "DM me" / free nitro type), react to the message with {report}. Your reaction is removed right away so nobody can see who reported it, and the mods get a report with a link.
 
-If a few people report the same brand new account, the bot just deletes the message. Regulars can't get deleted this way, so don't bother trying it on your friends.
+If a few people report the same message from a brand new account, the bot deletes it automatically. That only works on new accounts, so it can't be used on regular members.
 
-Assistant Coaches: if something needs a mod *now*, use `/alert` (or right-click the message → Apps → Alert staff). That actually pings them.""",
+Assistant Coaches: if something needs a mod right away, use `/alert` or right-click the message and pick Apps > Alert staff. That pings the mods.""",
 
     "reminders": """\
-## ⏰ Reminders
-`!remindme 2h check the injury report` and the bot replies to you in 2 hours.
+## Reminders
+`!remindme 2h check the injury report` and the bot will reply to you in two hours.
 
-Reply to someone's message with `!remindme 1d` and it'll remind you about *that* message instead. Just `!remindme` on its own gives you a button with a form. `/remindme` and right-click → Apps → Remind me about this work too.
+If you send `!remindme 1d` as a reply to someone's message, the reminder will reply to that message instead. Sending just `!remindme` gives you a button that opens a form. `/remindme` and right-click > Apps > Remind me about this also work.
 
-Times look like `30m`, `2h`, `3d`, `1w`. `!reminders` shows yours, `!reminders cancel 1` kills one.""",
+Times look like `30m`, `2h`, `3d` or `1w`. `!reminders` shows yours, and `!reminders cancel 1` cancels one.""",
 
     "chants": """\
-## 📣 Chants
-Say it anywhere in a message and the bot says it louder:
+## Chants
+Type one of these anywhere in a message and the bot will finish it for you:
 {chants}
-It'll only go a few times a minute, so don't bother spamming it after a win.""",
+It only responds a few times a minute, so it won't flood the channel after a game.""",
 
     "awards": """\
-## 👑 Weekly awards
-Every Monday at noon the bot crowns whoever got the most of each reaction that week (kek, thistbh, babydino, doubt) and they get the role for the week.
+## Weekly awards
+Every Monday at noon Central, the bot looks at who got the most of each reaction over the past week (kek, thistbh, babydino and doubt) and gives them the matching role for the week.
 
-Reacting to your own stuff doesn't count. You can only win one per week, so if you top two, you get the better one and the next person gets the other. The card explains who got skipped. Mods can't win.
+Reacting to your own messages doesn't count. Each person can only win one award a week, so if you top two, you get the higher one and the other goes to the next person. The results card shows who was skipped and why. Mods can't win.
 
-Check the race any time with `!reactking :kek:`.""",
+You can check where things stand any time with `!reactking :kek:`.""",
 
     "emotes": """\
-## 😀 Emotes & pfps
-Reply to a message with `!download` to get its emotes/stickers as images.
+## Emotes and pfps
+Reply to a message with `!download` to get its emotes or stickers as image files.
 
-`!avatar @someone` (or `!pfp`) gets their pfp at full size, plus their server pfp and banner if they have them. `/avatar` and right-click → Apps → Get avatar do the same thing but only you see it. Meme responsibly.""",
+`!avatar @someone` (or `!pfp`) posts their profile picture at full size, along with their server profile picture and banner if they have them. `/avatar` and right-click > Apps > Get avatar do the same thing, but only you can see the result.""",
 
     "fun": """\
-## 🎱 8-ball
-`!8ball are the Packers frauds?` or `/8ball`. Has to end with a question mark or it won't play along.""",
+## 8-ball
+`!8ball are the Packers frauds?` or `/8ball`. It has to end with a question mark.""",
 
     "faq": """\
-## ❓ FAQ
-**My message got deleted and reposted with an APP tag??**
-That's the link fixer. Your link plays now. React 🗑️ if you want it gone.
+## FAQ
+**My message got deleted and reposted with an APP tag.**
+That's the link fixer, so your link plays in Discord. React 🗑️ on it if you want it gone.
 
-**Why's my name white on the repost?**
-Discord won't show role colors on bot posts. Clicking "shared by @you" gets to your real profile.
+**Why isn't my name colored on the repost?**
+Discord doesn't show role colors on bot posts. Clicking "shared by @you" goes to your actual profile.
 
-**My 🛎️ reaction disappeared**
-Good, that means the report went through.
+**My report reaction disappeared.**
+That's expected. It means the report went through.
 
-**I had more keks, why did someone else get Kekkest?**
-You probably already won a higher award that week. One per person.
+**I had the most keks, so why did someone else get the award?**
+You most likely already won a higher award that week. It's one award per person.
 
-**My reminder never showed up**
-Check `!reminders`. If the original message got deleted it posts in the channel instead.""",
+**My reminder never showed up.**
+Check `!reminders`. If the original message was deleted, the reminder posts in the channel instead.""",
 
     "mods": """\
-## 🛠️ Mod stuff
-Slash versions of the mod commands (replies are just for you, still logged): `/kick` `/ban` `/unban` `/timeout` `/mute` `/unmute` `/mutechannel` `/unmutechannel` `/slowmode`
+## Mod stuff
+Slash versions of the mod commands. Replies are only visible to you, and they're logged the same as the `!` versions:
+`/kick` `/ban` `/unban` `/timeout` `/mute` `/unmute` `/mutechannel` `/unmutechannel` `/slowmode`
 
-Reports: `!reportset show`, `!reportset block @user` for serial false reporters, `!reportset autohide <n>`
+Reports: `!reportset show`, `!reportset block @user` for repeat false reporters, `!reportset autohide <n>`
 Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`
-Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` when a proxy dies
+Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working
 Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`
-Emotes: reply with `!steal` to add them to the server
+Emotes: reply to a message with `!steal` to add its emotes to the server
 
 Everything else is in the README on GitHub.""",
 }

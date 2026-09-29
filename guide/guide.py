@@ -30,7 +30,7 @@ class TopicSelect(discord.ui.Select):
             discord.SelectOption(label=label, value=key, emoji=emoji, description=desc)
             for key, label, emoji, desc, _ in TOPICS
         ]
-        super().__init__(placeholder="what do you need help with?", options=options, custom_id=SELECT_ID)
+        super().__init__(placeholder="Pick a topic", options=options, custom_id=SELECT_ID)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
@@ -91,7 +91,7 @@ class Guide(commands.Cog):
             await interaction.response.send_message("That topic no longer exists.", ephemeral=True)
             return
         if topic[4] and not await self._is_staff(interaction.user):
-            await interaction.response.send_message("nice try, that one's for mods", ephemeral=True)
+            await interaction.response.send_message("That section is for mods.", ephemeral=True)
             return
         text = TEXT[key]
         if "{" in text:
@@ -101,11 +101,11 @@ class Guide(commands.Cog):
 
     def _panel_embed(self) -> discord.Embed:
         lines = [
-            "## 📖 How to use Refbot",
-            "Pick something from the menu and it'll explain (only you see the answer).",
+            "## How to use Refbot",
+            "Pick a topic from the menu below. The answer is only visible to you.",
             "",
         ]
-        lines += [f"{emoji} **{label}** - {desc}" for _, label, emoji, desc, mods in TOPICS if not mods]
+        lines += [f"**{label}** - {desc}" for _, label, emoji, desc, mods in TOPICS if not mods]
         return discord.Embed(description="\n".join(lines), color=COLOR)
 
     # ------------------------------------------------------------ commands
