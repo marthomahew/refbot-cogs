@@ -255,11 +255,13 @@ When someone types a chant acronym anywhere in a message (any capitalisation,
 whole word only), the bot replies with the full chant, pinging nobody:
 FTP → Fuck the Packers, FTB → Fuck the Bears, FTL → Fuck the Lions,
 FTR → Fuck the Refs, FSP → Fuck Sean Payton. Several in one message get one
-reply. At most 3 replies per channel per minute. Bots and link reposts are ignored.
+reply. At most 3 replies per channel per minute by default (adjustable). Bots and link
+reposts are ignored.
 
 | Command | Who | What it does |
 | --- | --- | --- |
 | `!chant list` | Everyone | Show all chants |
 | `!chant add <acronym> <phrase>` | Admin | Add or change one, e.g. `!chant add FTG Fuck the Giants` |
 | `!chant remove <acronym>` | Admin | Remove one |
+| `!chant limit <n> [channel\|server]` | Admin | Replies per minute, per channel (default) or across the server, 1-30 |
 | `!chant toggle` | Admin | Turn chant replies on/off |

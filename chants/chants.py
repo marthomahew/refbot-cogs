@@ -4,7 +4,8 @@
   ("lol ftp" yes, "sftp" no).
 - Several in one message get one combined reply.
 - The reply pings nobody (the reply arrow already shows who said it).
-- Flood control: at most RATE_LIMIT replies per channel per minute.
+- Flood control: at most N replies per minute, per channel (default) or per
+  server, adjustable with `[p]chant limit`.
 - The list is editable from Discord with `[p]chant add/remove/list`.
 """
 
@@ -29,8 +30,9 @@ DEFAULT_CHANTS = {
     "FTR": "Fuck the Refs",
     "FSP": "Fuck Sean Payton",
 }
-RATE_LIMIT = 3  # replies per channel...
-RATE_WINDOW = 60  # ...per this many seconds
+DEFAULT_LIMIT = 3  # replies per minute (admins can change it with `chant limit`)
+MAX_LIMIT = 30
+RATE_WINDOW = 60  # seconds
 ACRONYM_RE = re.compile(r"^[A-Za-z0-9]{2,10}$")
 
 
@@ -45,8 +47,11 @@ class Chants(commands.Cog):
             # A list of [acronym, phrase] pairs rather than a dict: Red merges dict
             # defaults back in, so removing a default chant wouldn't stick.
             chants=[[a, p] for a, p in DEFAULT_CHANTS.items()],
+            rate_limit=DEFAULT_LIMIT,  # replies per minute...
+            rate_scope="channel",  # ...per "channel" or per "server"
         )
-        self._recent: dict[int, deque] = defaultdict(deque)  # channel id -> times of recent replies
+        # ("channel", id) or ("server", id) -> times of recent replies
+        self._recent: dict[tuple[str, int], deque] = defaultdict(deque)
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
         # Stores no user data.
@@ -63,13 +68,14 @@ class Chants(commands.Cog):
                 found.append((match.start(), phrase))
         return [phrase for _, phrase in sorted(found)]
 
-    def _allowed(self, channel_id: int) -> bool:
-        """Flood control: True if the bot may reply in this channel right now."""
+    def _allowed(self, message: discord.Message, limit: int, scope: str) -> bool:
+        """Flood control: True if the bot may reply right now."""
+        key = ("server", message.guild.id) if scope == "server" else ("channel", message.channel.id)
         now = time.monotonic()
-        recent = self._recent[channel_id]
+        recent = self._recent[key]
         while recent and now - recent[0] > RATE_WINDOW:
             recent.popleft()
-        if len(recent) >= RATE_LIMIT:
+        if len(recent) >= limit:
             return False
         recent.append(now)
         return True
@@ -90,7 +96,7 @@ class Chants(commands.Cog):
         if not conf["enabled"]:
             return
         phrases = self._find(message.content, conf["chants"])
-        if not phrases or not self._allowed(message.channel.id):
+        if not phrases or not self._allowed(message, conf["rate_limit"], conf["rate_scope"]):
             return
         try:
             await message.reply(
@@ -112,7 +118,7 @@ class Chants(commands.Cog):
         conf = await self.config.guild(ctx.guild).all()
         lines = [f"`{a}` → {p}" for a, p in sorted(conf["chants"])] or ["No chants yet."]
         status = "on" if conf["enabled"] else "off"
-        lines.append(f"-# Chants are {status} · up to {RATE_LIMIT} replies per channel per minute")
+        lines.append(f"-# Chants are {status} · up to {conf['rate_limit']} replies per {conf['rate_scope']} per minute")
         await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
 
     @chant.command(name="add")
@@ -139,6 +145,24 @@ class Chants(commands.Cog):
             chants[:] = [[a, p] for a, p in chants if a.upper() != acronym.upper()]
             removed = len(chants) < before
         await ctx.send(f"Removed `{acronym.upper()}`." if removed else f"There's no `{acronym.upper()}` chant.")
+
+    @chant.command(name="limit")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def chant_limit(self, ctx: commands.Context, per_minute: int, scope: str = "channel"):
+        """How many chant replies per minute: `[p]chant limit 5` (per channel) or `[p]chant limit 5 server`."""
+        scope = scope.lower()
+        if scope not in ("channel", "server"):
+            await ctx.send("Scope must be `channel` or `server`.")
+            return
+        if not 1 <= per_minute <= MAX_LIMIT:
+            await ctx.send(f"Pick a number from 1 to {MAX_LIMIT}. (To turn chants off, use `{ctx.clean_prefix}chant toggle`.)")
+            return
+        conf = self.config.guild(ctx.guild)
+        await conf.rate_limit.set(per_minute)
+        await conf.rate_scope.set(scope)
+        self._recent.clear()  # start counting fresh under the new rule
+        where = "each channel" if scope == "channel" else "the whole server"
+        await ctx.send(f"Chants: up to **{per_minute}** replies per minute in {where}.")
 
     @chant.command(name="toggle")
     @commands.admin_or_permissions(manage_guild=True)
