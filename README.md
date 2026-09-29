@@ -144,6 +144,7 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 | `!reactking :emoji: [period] [#channel]` | Everyone | Top 10 members by that reaction, plus the most-reacted message |
 | `!awards channel #channel` | Admin | Where the weekly awards post |
 | `!awards modchannel #channel` | Admin | Private channel for full results with admins/mods included |
+| `!awards name <award> <title>` / `reset` | Admin | Card title for an award (default: its role's name, e.g. "Kekkest") |
 | `!awards priority [award] [position]` | Admin | Show or change which award wins when someone tops several (`reactking` for React King) |
 | `!awards statbot #channel @role` / `off` | Admin | Link Statbot's weekly top-chatter announcement (and its role, as a fallback) |
 | `!awards exclude #channel` | Admin | Never read that channel or its threads, for awards or `!reactking` (the command message is deleted so the name doesn't linger) |
