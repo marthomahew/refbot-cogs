@@ -27,13 +27,14 @@ Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash
 One NFL scoreboard message that the bot keeps editing in place, using ESPN's public
 scoreboard data. It has two cards:
 
-- **Team card** (Vikings by default), in team colors with its logo. Before kickoff it
+- **Team card** (Vikings by default), in team colors with its logo, and team logos
+  in the big score line. Before kickoff it
   shows records, TV, venue, betting line and weather. During and after the game it shows
   the score, clock, who has the ball and down & distance, the last play, scoring by
   quarter, stat leaders, and a recap headline when it's over.
 - **Around the NFL card**: a grid of game cards (three per row on desktop, one per
-  row on mobile), live games first, then upcoming, then finals. Each card is titled
-  with its status (🔴 Q3 5:21 / 🗓️ kickoff time / ✅ Final) and shows team logos,
+  row on mobile) under 🔴 Live / 🗓️ Upcoming / ✅ Final headers. Live and upcoming
+  cards are titled with their clock or kickoff time. Each card shows team logos,
   names and scores (leader in bold), the possession line while live, and a link:
   **Highlights** for finished games (the NFL's YouTube video when found, else
   ESPN's), **Gamecast** otherwise. Logos are the bot's own emoji, created

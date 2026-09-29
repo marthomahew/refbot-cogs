@@ -405,8 +405,15 @@ def _team_color(team: Team) -> discord.Color:
         return TEAM_FALLBACK_COLOR
 
 
-def build_team_embed(game: Optional[Game], team_abbr: str, week_label: str) -> discord.Embed:
+def build_team_embed(
+    game: Optional[Game], team_abbr: str, week_label: str, logos: Optional[dict[str, str]] = None
+) -> discord.Embed:
     """The big card for the highlighted team's game."""
+    logos = logos or {}
+
+    def logo(abbr: str) -> str:
+        return f"{logos[abbr]} " if abbr in logos else ""
+
     if game is None:
         return discord.Embed(
             title=f"⭐ {team_abbr}: bye week",
@@ -430,10 +437,12 @@ def build_team_embed(game: Optional[Game], team_abbr: str, week_label: str) -> d
         return f" ({t.record})" if t.record else ""
 
     if game.state == "pre":
-        head = f"### {game.away.abbr}{rec(game.away)}  {_sep(game)}  {game.home.abbr}{rec(game.home)}"
+        head = (f"### {logo(game.away.abbr)}{game.away.abbr}{rec(game.away)}  {_sep(game)}  "
+                f"{logo(game.home.abbr)}{game.home.abbr}{rec(game.home)}")
     else:
         # No bold here: Discord headings are already bold.
-        head = f"## {game.away.abbr} {game.away.score}  {_sep(game)}  {game.home.abbr} {game.home.score}"
+        head = (f"## {logo(game.away.abbr)}{game.away.abbr} {game.away.score}  {_sep(game)}  "
+                f"{logo(game.home.abbr)}{game.home.abbr} {game.home.score}")
 
     status_icon = {"pre": "🕐", "in": "🔴", "post": "✅"}.get(game.state, "")
     status_lines = [f"{status_icon} **{clock_text(game)}**"]
@@ -469,15 +478,6 @@ def build_team_embed(game: Optional[Game], team_abbr: str, week_label: str) -> d
 
 
 # ---------------------------------------------------------------- league card
-
-
-def _card_status(game: Game) -> str:
-    """The title of a game's card: "✅ Final", "🔴 Q3 5:21" or "🗓️ Sun 9/27 · 12:00 PM CT"."""
-    if game.state == "post":
-        return f"✅ {clock_text(game)}"
-    if game.state == "in":
-        return f"🔴 {clock_text(game)}"
-    return f"🗓️ {clock_text(game)}"
 
 
 def build_league_embed(
@@ -516,15 +516,31 @@ def build_league_embed(
             return f"[Highlights]({url})" if url else ""
         return f"[Gamecast]({game.gamecast_url})" if game.gamecast_url else ""
 
-    order = {"in": 0, "pre": 1, "post": 2}  # live first, then upcoming, then finals
     embed = discord.Embed(title=f"🏈 Around the NFL · {week_label}", color=LEAGUE_COLOR)
-    for game in sorted(games, key=lambda g: (order.get(g.state, 3), g.kickoff))[:25]:  # Discord's field limit
-        lines = [team_line(game, game.away, game.home), team_line(game, game.home, game.away)]
-        if ball_text(game):
-            lines.append(ball_text(game))
-        if link(game):
-            lines.append(link(game))
-        embed.add_field(name=_card_status(game), value="\n".join(lines)[:1024], inline=True)
+    sections = [
+        ("🔴 Live", "in"),
+        ("🗓️ Upcoming", "pre"),
+        ("✅ Final", "post"),
+    ]
+    for heading, state in sections:
+        section = sorted((g for g in games if g.state == state), key=lambda g: g.kickoff)
+        if not section or len(embed.fields) >= 24:  # room for a header + at least one card
+            continue
+        # A full-width header field starts a new row of cards. (Field values can't
+        # be empty, so it uses an invisible character.)
+        embed.add_field(name=heading, value="\u200b", inline=False)
+        for game in section:
+            lines = [team_line(game, game.away, game.home), team_line(game, game.home, game.away)]
+            if ball_text(game):
+                lines.append(ball_text(game))
+            if link(game):
+                lines.append(link(game))
+            # Live and upcoming cards keep their own clock / kickoff time; finals
+            # don't need a title (the section header says it).
+            title = clock_text(game) if state != "post" else "\u200b"
+            embed.add_field(name=title, value="\n".join(lines)[:1024], inline=True)
+            if len(embed.fields) >= 25:  # Discord's field limit
+                break
     if not games:
         embed.description = "No other games this week."
     embed.set_footer(text=f"Last updated {central_time_text(updated)} · Data: ESPN")
@@ -551,7 +567,7 @@ def build_embeds(
     ours = next((g for g in week.games if g.involves(team)), None)
     others = [g for g in week.games if g is not ours]
     return [
-        build_team_embed(ours, team, week.label),
+        build_team_embed(ours, team, week.label, logos),
         build_league_embed(others, week.label, updated, logos, youtube),
     ]
 
