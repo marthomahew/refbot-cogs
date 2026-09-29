@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "avatar",
+    "short": "Get someone's profile pictures at full size.",
+    "description": "`[p]avatar @user`, `/avatar` or right-click a user → Apps → Get avatar: posts their avatar, server avatar and banner at original size (PNG, or GIF if animated).",
+    "install_msg": "Loaded? As bot owner: `[p]slash enable avatar`, `[p]slash enable \"Get avatar\" user`, then `[p]slash sync`.",
+    "tags": ["avatar", "pfp", "utility"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}

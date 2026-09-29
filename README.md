@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants
-!load scoreboard embedfix emotesteal reactking modslash remindme chants
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar
+!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking modslash remindme chants
+!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -278,3 +278,17 @@ reposts are ignored.
 | `!chant remove <acronym>` | Admin | Remove one |
 | `!chant limit <n> [channel\|server]` | Admin | Replies per minute, per channel (default) or across the server, 1-30 |
 | `!chant toggle` | Admin | Turn chant replies on/off |
+
+## avatar
+
+Full-size profile pictures (handy for memes): the main avatar, the server-specific
+avatar and the profile banner, whichever exist, as files you can save. PNG for
+still images, GIF if animated, at the largest size they exist (never upscaled).
+
+| How | Who sees the reply |
+| --- | --- |
+| `!avatar [@user]` (or `!pfp`) | everyone |
+| `/avatar [user]` | only you |
+| Right-click a user → Apps → **Get avatar** | only you |
+
+Setup (bot owner): `!slash enable avatar`, `!slash enable "Get avatar" user`, then `!slash sync`.
