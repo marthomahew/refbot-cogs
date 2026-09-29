@@ -122,6 +122,17 @@ class Scoreboard(commands.Cog):
             async with self._session.get(espn.ESPN_URL) as resp:
                 resp.raise_for_status()
                 data = await resp.json(content_type=None)
+            # Early Wednesday ESPN already shows the new week; keep the last one
+            # until Wednesday 3 PM Central (see espn.held_week).
+            held = espn.held_week(data, datetime.now(timezone.utc))
+            if held:
+                params = {"seasontype": held[0], "week": held[1]}
+                try:
+                    async with self._session.get(espn.ESPN_URL, params=params) as resp:
+                        resp.raise_for_status()
+                        data = await resp.json(content_type=None)
+                except aiohttp.ClientError as e:
+                    log.info("Couldn't fetch last week (%s); showing ESPN's current week: %r", params, e)
             week = espn.parse_scoreboard(data)
         except asyncio.CancelledError:
             raise

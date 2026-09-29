@@ -43,7 +43,9 @@ scoreboard data. It has two cards:
   lack one.
 
 It updates every minute while games are live, every 15 minutes on game days, and hourly
-otherwise. If ESPN is down, the last good scoreboard stays up.
+otherwise. A new week appears at 3:00 PM Central on Wednesday (ESPN switches at 2:00 AM;
+the bot keeps last week's results up until the afternoon). Week 1 and preseason weeks,
+which don't start on a Wednesday, switch right away. If ESPN is down, the last good scoreboard stays up.
 
 | Command | Who | What it does |
 | --- | --- | --- |

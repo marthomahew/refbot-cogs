@@ -572,6 +572,54 @@ def build_embeds(
     ]
 
 
+# ---------------------------------------------------------------- week turnover
+
+
+def _calendar(data: dict) -> list[tuple[str, str, datetime, datetime]]:
+    """Every week in ESPN's calendar as (season type, week, start, end), in order."""
+    weeks = []
+    for part in (data.get("leagues") or [{}])[0].get("calendar") or []:
+        for entry in part.get("entries") or []:
+            try:
+                weeks.append((
+                    str(part["value"]), str(entry["value"]),
+                    _parse_time(entry["startDate"]), _parse_time(entry["endDate"]),
+                ))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return sorted(weeks, key=lambda w: w[2])
+
+
+def held_week(data: dict, now: datetime) -> Optional[tuple[str, str]]:
+    """ESPN starts each new week at 2:00 AM Central on Wednesday. We keep showing
+    the previous week until 3:00 PM Central that Wednesday (around the first injury
+    reports), so Wednesday morning is still recap time. Weeks that don't start on
+    a Wednesday (Week 1, preseason) aren't held.
+
+    Returns (season type, week) of the week to show instead, or None to use
+    ESPN's current week. Works across preseason / regular season / playoffs
+    because it follows ESPN's own calendar.
+    """
+    weeks = _calendar(data)
+    for i, (_, _, start, end) in enumerate(weeks):
+        if start <= now <= end:
+            break
+    else:
+        return None  # not inside any calendar week (e.g. deep offseason)
+    if i == 0:
+        return None
+    local_start = start.astimezone(CENTRAL)
+    if local_start.weekday() != 2:  # Monday=0, Wednesday=2
+        # Only ordinary weeks start on Wednesday. Week 1 (a Sunday) and preseason
+        # weeks (Thursdays) switch straight away, so their games are never hidden.
+        return None
+    turnover = local_start.replace(hour=15, minute=0, second=0, microsecond=0)
+    if now >= turnover:
+        return None
+    previous_type, previous_week, _, _ = weeks[i - 1]
+    return previous_type, previous_week
+
+
 # ---------------------------------------------------------------- cadence
 
 
