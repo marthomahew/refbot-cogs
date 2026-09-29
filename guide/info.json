@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "guide",
+    "short": "An interactive guide to Refbot with a topic dropdown.",
+    "description": "`[p]guide post #channel` posts a panel with a \"Pick a topic…\" dropdown explaining every Refbot feature; each topic opens privately. `/guide` opens it privately anywhere.",
+    "install_msg": "Loaded? `[p]guide post #bot-guide`. For the slash version: `[p]slash enable guide` then `[p]slash sync`.",
+    "tags": ["help", "guide", "faq"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}

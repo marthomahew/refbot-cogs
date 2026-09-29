@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar
-!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide
+!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar
+!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -292,3 +292,17 @@ still images, GIF if animated, at the largest size they exist (never upscaled).
 | Right-click a user → Apps → **Get avatar** | only you |
 
 Setup (bot owner): `!slash enable avatar`, `!slash enable "Get avatar" user`, then `!slash sync`.
+
+## guide
+
+An in-Discord guide to everything above: a panel with a "Pick a topic…" dropdown
+(Scoreboard, Link fixer, Reporting & alerts, Reminders, Chants, Weekly awards,
+Emotes & avatars, Fun, FAQ, For mods). Each topic opens privately; "For mods" only
+opens for staff. The report emoji and chant list are filled in from the live
+settings. The topic text lives in `guide/topics.py`.
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `!guide post #channel` | Admin | Post the permanent panel (keeps working after restarts) |
+| `!guide` | Everyone | Show the panel here |
+| `/guide` | Everyone | Show the panel privately |
