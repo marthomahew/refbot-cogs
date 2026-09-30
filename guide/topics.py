@@ -122,9 +122,7 @@ The mods then have 15 minutes to respond. If no mod posts, reacts, takes a mod a
 
 During Emergency Mode you can use:
 `!silence 3` - the bot deletes messages from anyone who joined in the last week. Use it for a raid or a big flood of spam. `!silence 0` turns it off.
-`!voteout @user` - starts a vote to mute that person. It goes through once 2 Assistant Coaches react to the vote message.
-
-Everything you do in Emergency Mode is logged and reviewed by the mods, so only use these when it's really needed.""",
+`!voteout @user` - starts a vote to mute that person. It goes through once 2 Assistant Coaches react to the vote message.""",
 
     "mods": """\
 ## Mod stuff
