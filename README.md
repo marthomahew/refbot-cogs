@@ -302,7 +302,11 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
   **board** in the pick'em channel: one message with two cards, "Make your picks"
   (button, next lock time, number of players) and the standings (this week and the
   season). The board is edited in place as picks come in (about 30 s later) and as
-  games finish; last week's board is closed with its final standings. (The scoreboard still waits until Wednesday
+  games finish.
+- The channel is meant to be read-only for members (deny Send Messages for @everyone;
+  buttons still work). The bot keeps it tidy: at most the current board, last week's
+  results, and the tiebreaker while it's open. When results post, the previous
+  results, that week's board and its tiebreaker are deleted. (The scoreboard still waits until Wednesday
   3 PM so Tuesday stays recap time.)
 - The button (or `/pickem play`) opens a private picker: four games per page, one
   button per team with team logos. Picks save on click. Each game locks at its own

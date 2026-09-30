@@ -5,6 +5,10 @@ How a week goes:
   the bot posts that week's results, then the next week's board: one message
   with two cards, "Make your picks" (with the button) and the standings. The
   board is edited in place as picks come in and games finish.
+- The channel stays tidy (it's meant to be read-only for members): at most the
+  current board, last week's results, and the tiebreaker while it's open. When
+  results go out, the old results, that week's board and its tiebreaker are
+  deleted.
 - The button (or `/pickem play`) opens a private picker: four games per page,
   one button per team. Picks save on click and each game locks at its kickoff.
 - Once every game before Monday is final, anyone who could still finish tied
@@ -170,6 +174,7 @@ class Pickem(commands.Cog):
             channel_id=None,  # where the panel, tiebreaker and results go
             role_id=None,  # optional weekly winner role
             weeks={},  # week key ("2026-2-4") -> week dict, see nfl.py
+            results_id=None,  # the latest results message (deleted when the next one posts)
         )
         self._session: Optional[aiohttp.ClientSession] = None
         self._task: Optional[asyncio.Task] = None
@@ -372,9 +377,7 @@ class Pickem(commands.Cog):
         #    got them, e.g. the bot was down or a game was postponed out of the
         #    week). Unfinished games don't count.
         for old_key in old:
-            if await self._post_results(guild, channel, conf, old_key, weeks[old_key]):
-                # Close last week's board: final standings, no button.
-                await self._refresh_board(guild, channel, old_key, final=True)
+            await self._post_results(guild, channel, conf, old_key, weeks[old_key])
 
         # 3. New week: post the board while there's still something to pick.
         if not week.get("opened") and any(not nfl.is_locked(g, now) for g in week["games"].values()):
@@ -389,21 +392,17 @@ class Pickem(commands.Cog):
         # 5. Results, if this is the last week of the season (otherwise step 2
         #    does it once we've moved on to the next week).
         games = week["games"].values()
-        final = False
         if not week.get("posted") and games and all(nfl.is_done(g) for g in games):
-            final = await self._post_results(guild, channel, conf, key, week)
+            await self._post_results(guild, channel, conf, key, week)
 
         # 6. Keep this week's board current (only edits when something changed).
-        await self._refresh_board(guild, channel, key, final=final)
+        await self._refresh_board(guild, channel, key)
 
     # ------------------------------------------------------------ the weekly board
 
-    def _panel_embed(self, week: dict, now: datetime, final: bool = False) -> discord.Embed:
+    def _panel_embed(self, week: dict, now: datetime) -> discord.Embed:
         """Top card of the board: how to play, next lock, and how many are in."""
         embed = discord.Embed(title=f"{week['label']} Pick'em", color=COLOR)
-        if final:
-            embed.description = "Picks are closed for this week. Final standings are below."
-            return embed
         open_games = [g for _, g in nfl.ordered(week["games"])
                       if not nfl.is_locked(g, now) and g["status"] not in nfl.NOT_PLAYING]
         lines = [
@@ -439,8 +438,8 @@ class Pickem(commands.Cog):
                         value=self._season_table(season, TABLE_SIZE) or "Nothing yet.", inline=False)
         return embed
 
-    def _board(self, week: dict, weeks: dict, now: datetime, final: bool = False) -> list[discord.Embed]:
-        return [self._panel_embed(week, now, final), self._standings_card(week, weeks)]
+    def _board(self, week: dict, weeks: dict, now: datetime) -> list[discord.Embed]:
+        return [self._panel_embed(week, now), self._standings_card(week, weeks)]
 
     async def _post_board(self, guild: discord.Guild, channel: discord.TextChannel, key: str) -> bool:
         """Post this week's board and remember it so it can be edited later."""
@@ -453,22 +452,24 @@ class Pickem(commands.Cog):
             log.warning("Couldn't post pick'em board in guild %s: %r", guild.id, e)
             return False
         await self._save(guild, key, opened=True, board_id=message.id)
-        self._board_shown[(guild.id, key)] = repr([e.to_dict() for e in embeds]) + str(False)
+        self._board_shown[(guild.id, key)] = repr([e.to_dict() for e in embeds])
         return True
 
-    async def _refresh_board(self, guild: discord.Guild, channel, key: str, final: bool = False) -> None:
+    async def _refresh_board(self, guild: discord.Guild, channel, key: str) -> None:
         """Edit a week's board if what it shows has changed."""
         weeks = await self.config.guild(guild).weeks()
         week = weeks.get(key)
         if not week or not week.get("board_id"):
             return
-        embeds = self._board(week, weeks, datetime.now(timezone.utc), final=final)
-        shown = repr([e.to_dict() for e in embeds]) + str(final)
+        if week.get("posted"):
+            return  # the week is over (its board was deleted with the results)
+        embeds = self._board(week, weeks, datetime.now(timezone.utc))
+        shown = repr([e.to_dict() for e in embeds])
         if self._board_shown.get((guild.id, key)) == shown:
             return
         try:
             await channel.get_partial_message(week["board_id"]).edit(
-                embeds=embeds, view=None if final else PanelView(self))
+                embeds=embeds, view=PanelView(self))
         except discord.NotFound:
             await self._save(guild, key, board_id=None)  # deleted; `pickemset panel` posts a new one
             return
@@ -565,15 +566,29 @@ class Pickem(commands.Cog):
             for i, (uid, rec, played) in enumerate(rows[:size], 1)
         )
 
+    @staticmethod
+    async def _delete(channel, message_id: Optional[int]) -> None:
+        if message_id:
+            try:
+                await channel.get_partial_message(message_id).delete()
+            except discord.HTTPException:
+                pass  # already gone
+
+    async def _clear_week(self, channel, week: dict) -> None:
+        """Remove a finished week's board and tiebreaker message."""
+        await self._delete(channel, week.get("board_id"))
+        await self._delete(channel, (week.get("tb") or {}).get("message_id"))
+
     async def _post_results(self, guild, channel, conf: dict, key: str, week: dict) -> bool:
         """Post a week's results. True if that week is now wrapped up."""
         if not nfl.players(week):
             await self._save(guild, key, posted=True)  # nobody played; nothing to announce
+            await self._clear_week(channel, week)
             return True
         weeks = await self.config.guild(guild).weeks()
         embed, won = self.results_embed(week, weeks)
         try:
-            await channel.send(
+            message = await channel.send(
                 " ".join(mention(u) for u in won), embed=embed,
                 allowed_mentions=discord.AllowedMentions(users=[discord.Object(int(u)) for u in won]),
             )
@@ -581,6 +596,12 @@ class Pickem(commands.Cog):
             log.warning("Couldn't post pick'em results in guild %s: %r", guild.id, e)
             return False  # try again next tick
         await self._save(guild, key, posted=True, winners=won)
+        # Keep the channel down to the essentials: the new results replace the old
+        # ones, and this week's board and tiebreaker aren't needed any more.
+        await self._delete(channel, conf.get("results_id"))
+        await self.config.guild(guild).results_id.set(message.id)
+        conf["results_id"] = message.id  # in case more than one week is wrapped up this tick
+        await self._clear_week(channel, week)
         if conf["role_id"]:
             problem = await self._move_role(guild, conf["role_id"], won)
             if problem:
@@ -839,8 +860,16 @@ class Pickem(commands.Cog):
         """Where the weekly panel, tiebreaker and results are posted."""
         await self.config.guild(ctx.guild).channel_id.set(channel.id)
         self.last_error.pop(ctx.guild.id, None)
-        await ctx.send(f"Pick'em will post in {channel.mention}." +
-                       ("" if await self.config.guild(ctx.guild).enabled() else " Turn it on with `pickemset toggle`."))
+        lines = [f"Pick'em will post in {channel.mention}."]
+        mine = channel.permissions_for(ctx.guild.me)
+        if not (mine.send_messages and mine.embed_links):
+            lines.append("I need Send Messages and Embed Links there.")
+        if channel.permissions_for(ctx.guild.default_role).send_messages:
+            lines.append("Members can still type there. To make it read-only, deny Send Messages for "
+                         "@everyone in the channel's permissions. The buttons keep working.")
+        if not await self.config.guild(ctx.guild).enabled():
+            lines.append("Turn it on with `pickemset toggle`.")
+        await ctx.send("\n".join(lines))
 
     @pickemset.command(name="role")
     async def pickemset_role(self, ctx: commands.Context, role: Optional[discord.Role] = None):
