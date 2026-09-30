@@ -10,6 +10,8 @@ The topic text lives in topics.py.
 from __future__ import annotations
 
 import logging
+import weakref
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -38,8 +40,8 @@ class TopicSelect(discord.ui.Select):
 
 
 class GuideView(discord.ui.View):
-    def __init__(self, cog: "Guide"):
-        super().__init__(timeout=None)  # never expires
+    def __init__(self, cog: "Guide", timeout: Optional[float] = None):
+        super().__init__(timeout=timeout)  # None = never expires
         self.add_item(TopicSelect(cog))
 
 
@@ -48,14 +50,30 @@ class Guide(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
-        self.view = GuideView(self)
+        # The one registered "catch-all" menu that answers every guide panel,
+        # including ones posted before a restart. It is NEVER sent in a message:
+        # discord.py changes views it sends (e.g. private replies get a 15 minute
+        # expiry), and if this one expired, every panel would stop answering.
+        self.persistent = GuideView(self)
+        # Fresh copies sent with messages, so they can be tidied up on reload.
+        self._sent: "weakref.WeakSet[GuideView]" = weakref.WeakSet()
 
     async def cog_load(self) -> None:
-        # Lets panels posted before a restart keep answering.
-        self.bot.add_view(self.view)
+        self.bot.add_view(self.persistent)
 
     async def cog_unload(self) -> None:
-        self.view.stop()
+        # Stop everything this copy of the cog registered, so after a reload
+        # every panel is answered by the new code.
+        for view in list(self._sent):
+            view.stop()
+        self.persistent.stop()
+
+    def _fresh_view(self, private: bool = False) -> GuideView:
+        """A new menu for one message. Private (ephemeral) ones expire after 15
+        minutes like all private menus; that only affects that one message."""
+        view = GuideView(self, timeout=15 * 60 if private else None)
+        self._sent.add(view)
+        return view
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
         # Stores nothing.
@@ -114,14 +132,14 @@ class Guide(commands.Cog):
     @commands.guild_only()
     async def guide(self, ctx: commands.Context):
         """Show the Refbot guide here."""
-        await ctx.send(embed=self._panel_embed(), view=self.view)
+        await ctx.send(embed=self._panel_embed(), view=self._fresh_view())
 
     @guide.command(name="post")
     @commands.admin_or_permissions(manage_guild=True)
     async def guide_post(self, ctx: commands.Context, channel: discord.TextChannel):
         """Post the permanent guide panel in a channel (e.g. #bot-guide)."""
         try:
-            message = await channel.send(embed=self._panel_embed(), view=self.view)
+            message = await channel.send(embed=self._panel_embed(), view=self._fresh_view())
         except discord.HTTPException as e:
             await ctx.send(f"Couldn't post there: {e.text or e.status}")
             return
@@ -130,4 +148,4 @@ class Guide(commands.Cog):
     @app_commands.command(name="guide", description="How to use Refbot")
     @app_commands.guild_only()
     async def guide_slash(self, interaction: discord.Interaction):
-        await interaction.response.send_message(embed=self._panel_embed(), view=self.view, ephemeral=True)
+        await interaction.response.send_message(embed=self._panel_embed(), view=self._fresh_view(private=True), ephemeral=True)
