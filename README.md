@@ -220,8 +220,10 @@ work exactly like the `!` versions.
 
 **Report reaction (needs Defender):** react to a message with the report emoji
 (set with `!reportset emoji 🛎️`, a standard or custom server emoji, then
-`!reportset toggle`). The bot
-removes the reaction at once, then, by the reactor's Defender rank:
+`!reportset toggle`). The bot removes the reaction at once. By default only
+**Assistant Coaches (Defender helper roles) and mods** can report: their reaction
+sends Defender's full alert, like `/alert`, and anyone else's is just removed.
+`!reportset who members` opens it up to members, by the reactor's Defender rank:
 Rank 1 (mods, Defender helper/trusted roles) sends Defender's full alert, like
 `/alert`; Rank 2 (established members) sends a quiet "member report" to
 Defender's notify channel with no ping (one per message every 6 hours); Rank 3-4
@@ -235,7 +237,7 @@ the bot deletes it, changes the note to "🧹 Removed after multiple reports.", 
 tells staff (with the text and who reported it). Messages from established
 members, mods, helpers, bots and link reposts can never be auto-hidden, only
 reported. `!reportset autohide <n>` changes the number (0 = off). `!reportset block @user` ignores someone's reports after false reports
-(`unblock` to undo); `!reportset show` shows the settings.
+(`unblock` to undo); `!reportset who coaches|members` sets who can report; `!reportset show` shows the settings.
 
 All replies are private ("Only you can see this"); modlog and log channels still record everything. Durations look like `10m`, `2h`, `1d`. Setup (bot owner): `!slash enablecog
 modslash`, then `!slash sync`. Discord hides each command from members without

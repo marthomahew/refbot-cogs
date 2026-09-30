@@ -5,6 +5,17 @@ Keep this in step with the cogs (and README.md) when commands change.
 """
 
 # (key, dropdown label, emoji, one-line description, mods only?)
+# The first paragraph of "Reporting spam" and its FAQ answer depend on who can
+# report (`reportset who`); the guide picks the matching one.
+COACHES_REPORT = """\
+If you see a scam bot (the "add me" / "DM me" / free nitro type), tag an Assistant Coach or a mod.
+
+Assistant Coaches and mods: react to the message with {report}. Your reaction is removed right away so nobody can see who reported it, and the mods get pinged with a link."""
+MEMBERS_REPORT = """\
+If you see a scam bot (the "add me" / "DM me" / free nitro type), react to the message with {report}. Your reaction is removed right away so nobody can see who reported it, and the mods get a report with a link."""
+COACHES_FAQ = "Only Assistant Coaches and mods can report with it, so for everyone else the bot just removes it. Tag a coach or a mod instead."
+MEMBERS_FAQ = "That's expected. It means the report went through."
+
 TOPICS = [
     ("scoreboard", "Scoreboard", "🏈", "How the live scoreboard works", False),
     ("links", "Link fixer", "🔗", "Why your links get reposted", False),
@@ -38,7 +49,7 @@ If you want a repost gone, react 🗑️ on it. If you don't want a link fixed i
 
     "report": """\
 ## Reporting spam
-If you see a scam bot (the "add me" / "DM me" / free nitro type), react to the message with {report}. Your reaction is removed right away so nobody can see who reported it, and the mods get a report with a link.
+{report_who}
 
 If a few people report the same message from a brand new account, the bot deletes it automatically. That only works on new accounts, so it can't be used on regular members.
 
@@ -95,7 +106,7 @@ That's the link fixer, so your link plays in Discord. React 🗑️ on it if you
 Discord doesn't show role colors on bot posts. Clicking "shared by @you" goes to your actual profile.
 
 **My report reaction disappeared.**
-That's expected. It means the report went through.
+{report_faq}
 
 **I had the most keks, so why did someone else get the award?**
 You most likely already won a higher award that week. It's one award per person.
@@ -108,7 +119,7 @@ Check `!reminders`. If the original message was deleted, the reminder posts in t
 Slash versions of the mod commands. Replies are only visible to you, and they're logged the same as the `!` versions:
 `/kick` `/ban` `/unban` `/timeout` `/mute` `/unmute` `/mutechannel` `/unmutechannel` `/slowmode`
 
-Reports: `!reportset show`, `!reportset block @user` for repeat false reporters, `!reportset autohide <n>`
+Reports: `!reportset show`, `!reportset who coaches|members`, `!reportset block @user` for repeat false reporters, `!reportset autohide <n>`
 Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`
 Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working

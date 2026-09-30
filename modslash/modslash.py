@@ -63,6 +63,9 @@ class ModSlash(commands.Cog):
             report_emoji_id=None,
             report_emoji_unicode=None,
             report_blocked=[],  # member ids whose report reactions are ignored (false reporters)
+            # Who can report with the reaction: "coaches" = mods + Defender helper roles
+            # (Assistant Coach) only; "members" = anyone Defender ranks 1-2.
+            report_who="coaches",
             # Auto-hide: remove a message once this many different members report it,
             # but ONLY if its author is a new account (Defender Rank 3-4). 0 = off.
             auto_hide_threshold=3,
@@ -425,6 +428,8 @@ class ModSlash(commands.Cog):
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         """Reacting with the report emoji reports that message, based on Defender rank:
 
+        By default only mods and Defender helpers (Assistant Coaches) can report
+        (`reportset who`); everyone else's reaction is just removed. Otherwise:
         Rank 1 (mods, Defender helper/trusted roles): Defender's full alert, like /alert.
         Rank 2 (established members): a quiet "member report" to Defender's notify
                 channel, no staff ping, no emergency mode.
@@ -461,6 +466,9 @@ class ModSlash(commands.Cog):
         if member.id in conf["report_blocked"]:
             log.info("Ignored report reaction from blocked member %s", member.id)
             return
+        if conf["report_who"] == "coaches" and not await self._can_report(defender, member):
+            log.info("Ignored report reaction from %s (only coaches and mods can report)", member.id)
+            return
         rank = int(await defender.rank_user(member))
         if rank <= 2:
             self._reporters.setdefault(message.id, set()).add(member.id)
@@ -476,6 +484,12 @@ class ModSlash(commands.Cog):
             return
         await self._mark_under_review(message, await self._author_is_new(defender, message))
         await self._maybe_auto_hide(defender, message, conf["auto_hide_threshold"])
+
+    async def _can_report(self, defender, member: discord.Member) -> bool:
+        """Mods, admins and Defender's helper roles (Assistant Coach)."""
+        if member.guild_permissions.administrator or member.id == member.guild.owner_id:
+            return True
+        return await self.bot.is_mod(member) or await defender.is_helper(member)
 
     @staticmethod
     def _is_report_emoji(emoji: discord.PartialEmoji, conf: dict) -> bool:
@@ -669,6 +683,18 @@ class ModSlash(commands.Cog):
                 blocked.remove(member.id)
         await ctx.send(f"{member.mention} can report again.", allowed_mentions=discord.AllowedMentions.none())
 
+    @reportset.command(name="who")
+    async def reportset_who(self, ctx: commands.Context, who: str):
+        """Who can report with the reaction: `coaches` (Assistant Coaches and mods) or `members` (everyone established)."""
+        who = who.lower()
+        if who not in ("coaches", "members"):
+            await ctx.send("Use `coaches` (Assistant Coaches and mods only) or `members` (any established member).")
+            return
+        await self.config.guild(ctx.guild).report_who.set(who)
+        await ctx.send("Only Assistant Coaches and mods can report now. Everyone else's reaction is just removed."
+                       if who == "coaches" else
+                       "Any established member can report now (brand new accounts are still ignored).")
+
     @reportset.command(name="autohide")
     async def reportset_autohide(self, ctx: commands.Context, reports: int):
         """How many different members' reports remove a new account's message (0 = off).
@@ -693,11 +719,13 @@ class ModSlash(commands.Cog):
         await ctx.send(
             f"**Report reaction:** {'on' if conf['report_enabled'] else 'off'}\n"
             f"**Emoji:** {emoji or 'not set'}\n"
+            f"**Who can report:** "
+            f"{'Assistant Coaches (Defender helper roles) and mods' if conf['report_who'] == 'coaches' else 'any established member'}\n"
             f"**Blocked from reporting:** {blocked}\n"
             f"**Auto-hide:** "
             f"{str(conf['auto_hide_threshold']) + ' reports (new accounts only)' if conf['auto_hide_threshold'] else 'off'}\n"
-            "**What it does (by Defender rank):** Rank 1 (mods, helpers, trusted) = full alert · "
-            "Rank 2 (established members) = quiet report · Rank 3-4 (new) = ignored. "
+            "**What it does:** coaches and mods = full alert (pings staff). With `who members`, "
+            "established members = quiet report and new accounts = ignored. "
             "Reported messages get a public \"don't click links\" reply.",
             allowed_mentions=discord.AllowedMentions.none(),
         )
