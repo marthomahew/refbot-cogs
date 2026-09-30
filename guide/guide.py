@@ -173,12 +173,21 @@ class Guide(commands.Cog):
             return True
         return await self.bot.is_mod(member)
 
+    async def _is_coach(self, member: discord.Member) -> bool:
+        """Assistant Coaches = Defender's helper roles."""
+        defender = self.bot.get_cog("Defender")
+        return defender is not None and await defender.is_helper(member)
+
     async def show_topic(self, interaction: discord.Interaction, key: str) -> None:
         topic = next((t for t in TOPICS if t[0] == key), None)
         if topic is None:
             await interaction.response.send_message("That topic no longer exists.", ephemeral=True)
             return
-        if topic[4] and not await self._is_staff(interaction.user):
+        if topic[4] == "coaches":
+            if not await self._is_staff(interaction.user) and not await self._is_coach(interaction.user):
+                await interaction.response.send_message("That section is for Assistant Coaches and mods.", ephemeral=True)
+                return
+        elif topic[4] and not await self._is_staff(interaction.user):
             await interaction.response.send_message("That section is for mods.", ephemeral=True)
             return
         text = TEXT[key]

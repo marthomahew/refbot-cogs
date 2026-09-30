@@ -4,7 +4,8 @@ Keep this in step with the cogs (and README.md) when commands change.
 `{report}` and `{chants}` are filled in live from the other cogs' settings.
 """
 
-# (key, dropdown label, emoji, one-line description, mods only?)
+# (key, dropdown label, emoji, one-line description, who: False = everyone,
+#  True = mods only, "coaches" = Assistant Coaches and mods)
 # The first paragraph of "Reporting spam" and its FAQ answer depend on who can
 # report (`reportset who`); the guide picks the matching one.
 COACHES_REPORT = """\
@@ -27,6 +28,7 @@ TOPICS = [
     ("pickem", "Pick'em", "🏈", "Weekly NFL picks", False),
     ("fun", "8-ball", "🎱", "Ask it a question", False),
     ("faq", "FAQ", "❓", "Common questions about the bot", False),
+    ("coaches", "Assistant Coaches", "📋", "Alerts and emergency mode", "coaches"),
     ("mods", "Mod stuff", "🛠️", "Mod and admin commands", True),
 ]
 
@@ -51,9 +53,7 @@ If you want a repost gone, react 🗑️ on it. If you don't want a link fixed i
 ## Reporting spam
 {report_who}
 
-If a few people report the same message from a brand new account, the bot deletes it automatically. That only works on new accounts, so it can't be used on regular members.
-
-Assistant Coaches: if something needs a mod right away, use `/alert` or right-click the message and pick Apps > Alert staff. That pings the mods.""",
+If a message from a brand new account gets enough reports, the bot deletes it automatically. That only works on new accounts, so it can't be used on regular members.""",
 
     "reminders": """\
 ## Reminders
@@ -113,6 +113,18 @@ You most likely already won a higher award that week. It's one award per person.
 
 **My reminder never showed up.**
 Check `!reminders`. If the original message was deleted, the reminder posts in the channel instead.""",
+
+    "coaches": """\
+## Assistant Coaches
+If someone is causing trouble and needs a mod, use `/alert` or `!alert` in that channel, or right-click their message and pick Apps > Alert staff. That pings the mods with a link to the message so they have context. For scam bots, reacting with {report} does the same thing.
+
+The mods then have 15 minutes to respond. If none of them are active in that time, the bot turns on Emergency Mode.
+
+During Emergency Mode you can use:
+`!silence 3` - the bot deletes messages from anyone who joined in the last week. Use it for a raid or a big flood of spam. `!silence 0` turns it off.
+`!voteout @user` - starts a vote to mute that person. It goes through once 2 Assistant Coaches react to the vote message.
+
+Everything you do in Emergency Mode is logged and reviewed by the mods, so only use these when it's really needed.""",
 
     "mods": """\
 ## Mod stuff

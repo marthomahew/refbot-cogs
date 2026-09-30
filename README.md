@@ -347,8 +347,8 @@ Setup: `!pickemset channel #pickem`, optionally `!pickemset role @Role`, then
 
 An in-Discord guide to everything above: a panel with a "Pick a topic…" dropdown
 (Scoreboard, Link fixer, Reporting & alerts, Reminders, Chants, Weekly awards,
-Emotes & avatars, Pick'em, Fun, FAQ, For mods). Each topic opens privately; "For mods" only
-opens for staff. The report emoji and chant list are filled in from the live
+Emotes & avatars, Pick'em, Fun, FAQ, Assistant Coaches, For mods). Each topic opens privately;
+"Assistant Coaches" only opens for Defender helper roles and staff, "For mods" only for staff. The report emoji and chant list are filled in from the live
 settings. The topic text lives in `guide/topics.py`.
 
 Panels update themselves: after changing topics, `!reload guide` re-edits every panel
