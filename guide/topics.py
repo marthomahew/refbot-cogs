@@ -13,6 +13,7 @@ TOPICS = [
     ("chants", "Chants", "📣", "FTP and the rest", False),
     ("awards", "Weekly awards", "👑", "The Monday reaction awards", False),
     ("emotes", "Emotes and pfps", "😀", "Saving emotes and full size profile pictures", False),
+    ("pickem", "Pick'em", "🏈", "Weekly NFL picks", False),
     ("fun", "8-ball", "🎱", "Ask it a question", False),
     ("faq", "FAQ", "❓", "Common questions about the bot", False),
     ("mods", "Mod stuff", "🛠️", "Mod and admin commands", True),
@@ -71,6 +72,16 @@ Reply to a message with `!download` to get its emotes or stickers as image files
 
 `!avatar @someone` (or `!pfp`) posts their profile picture at full size, along with their server profile picture and banner if they have them. `/avatar` and right-click > Apps > Get avatar do the same thing, but only you can see the result.""",
 
+    "pickem": """\
+## Pick'em
+Every week, pick the winner of every NFL game. Hit **Make your picks** on the weekly post in the pick'em channel, or use `/pickem play`. Your picker is only visible to you, and picks save as soon as you click.
+
+Each game locks at its own kickoff, so you can pick the Thursday game on Thursday and wait on Sunday's until Sunday. A game you don't pick counts as a loss.
+
+If it's close after Sunday night, the people still in the running get tagged to guess the total points in Monday night's game. If the week ends in a tie, the closest guess wins it.
+
+Results go up after the last game. `/pickem standings` shows the week and the season, and `/pickem picks @someone` shows their picks once games have started.""",
+
     "fun": """\
 ## 8-ball
 `!8ball are the Packers frauds?` or `/8ball`. It has to end with a question mark.""",
@@ -102,6 +113,7 @@ Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`
 Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working
 Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`
+Pick'em: `!pickemset show`, `!pickemset preview`, `!pickemset panel` if the weekly post got deleted
 Emotes: reply to a message with `!steal` to add its emotes to the server
 
 Everything else is in the README on GitHub.""",

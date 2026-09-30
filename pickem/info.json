@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "pickem",
+    "short": "Weekly NFL pick'em with a Monday night tiebreaker.",
+    "description": "Members pick the winner of every NFL game each week from a private picker (`/pickem play` or the weekly panel). Picks lock at each game's kickoff. If it's close after Sunday night, contenders guess Monday night's total points. Results, standings and an optional winner role go out after the last game. Uses ESPN's public scoreboard.",
+    "install_msg": "Loaded? `[p]pickemset channel #pickem`, optionally `[p]pickemset role @Role`, then `[p]pickemset toggle`. For slash commands: `[p]slash enable pickem` then `[p]slash sync`.",
+    "tags": ["nfl", "football", "pickem", "game"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog stores each member's weekly pick'em picks and tiebreaker guesses, and who won each week. It can all be deleted on request."
+}

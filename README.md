@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide
-!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem
+!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide
+!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -293,11 +293,51 @@ still images, GIF if animated, at the largest size they exist (never upscaled).
 
 Setup (bot owner): `!slash enable avatar`, `!slash enable "Get avatar" user`, then `!slash sync`.
 
+## pickem
+
+Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
+
+- A new week opens at 3:00 PM Central on Wednesday (same turnover as the scoreboard)
+  and the bot posts a **Make your picks** panel in the pick'em channel.
+- The button (or `/pickem play`) opens a private picker: four games per page, one
+  button per team with team logos. Picks save on click. Each game locks at its own
+  kickoff, checked when the pick is saved, not just by greying out buttons.
+- Right pick = win. Wrong pick or no pick = loss, once you've made at least one pick
+  that week. An NFL tie is a push for everyone. Postponed games that aren't played
+  that week don't count.
+- **Tiebreaker:** once every game before the last game day (normally Monday) is final,
+  anyone who could still finish tied for first is pinged to guess the total points of
+  Monday night's game (both games added together on a Monday doubleheader). Guesses
+  lock at kickoff. Closest guess wins a tie; if still tied, they share the week. Weeks
+  where every game is on one day have no tiebreaker.
+- When the last game is final, the bot posts the results (top 5 for the week and the
+  season), pings the winner and moves the optional winner role to them. Staff can
+  play and win. The role is independent of the reaction awards, so someone can hold
+  both.
+- Other people's picks stay hidden until each game kicks off.
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `/pickem play` | Everyone | Open your private picker |
+| `!pickem` | Everyone | Post a button that opens the picker |
+| `/pickem picks [member]` | Everyone | Your picks in full (private); others' only for games that have started |
+| `!pickem picks [@member]` | Everyone | Picks for games that have started |
+| `/pickem standings`, `!pickem standings` | Everyone | This week's and the season's standings |
+| `!pickemset channel #channel` | Admin | Where the panel, tiebreaker and results go |
+| `!pickemset role [@role]` | Admin | Weekly winner role (leave empty for none) |
+| `!pickemset toggle` | Admin | Turn pick'em on or off |
+| `!pickemset panel` | Admin | Post this week's panel again |
+| `!pickemset preview` | Admin | Show the results card as it stands (no pings, no roles) |
+| `!pickemset show` | Admin | Settings, players this week, last problem |
+
+Setup: `!pickemset channel #pickem`, optionally `!pickemset role @Role`, then
+`!pickemset toggle`. Slash: `!slash enable pickem` then `!slash sync`.
+
 ## guide
 
 An in-Discord guide to everything above: a panel with a "Pick a topic…" dropdown
 (Scoreboard, Link fixer, Reporting & alerts, Reminders, Chants, Weekly awards,
-Emotes & avatars, Fun, FAQ, For mods). Each topic opens privately; "For mods" only
+Emotes & avatars, Pick'em, Fun, FAQ, For mods). Each topic opens privately; "For mods" only
 opens for staff. The report emoji and chant list are filled in from the live
 settings. The topic text lives in `guide/topics.py`.
 
