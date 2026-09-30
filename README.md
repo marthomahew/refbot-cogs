@@ -297,8 +297,10 @@ Setup (bot owner): `!slash enable avatar`, `!slash enable "Get avatar" user`, th
 
 Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 
-- A new week opens at 3:00 PM Central on Wednesday (same turnover as the scoreboard)
-  and the bot posts a **Make your picks** panel in the pick'em channel.
+- A new week opens as soon as the last game of the previous week is final (normally
+  right after Monday night): the bot posts last week's results, then a **Make your
+  picks** panel in the pick'em channel. (The scoreboard still waits until Wednesday
+  3 PM so Tuesday stays recap time.)
 - The button (or `/pickem play`) opens a private picker: four games per page, one
   button per team with team logos. Picks save on click. Each game locks at its own
   kickoff, checked when the pick is saved, not just by greying out buttons.
@@ -310,8 +312,7 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
   Monday night's game (both games added together on a Monday doubleheader). Guesses
   lock at kickoff. Closest guess wins a tie; if still tied, they share the week. Weeks
   where every game is on one day have no tiebreaker.
-- When the last game is final, the bot posts the results (top 5 for the week and the
-  season), pings the winner and moves the optional winner role to them. Staff can
+- The results show the top 5 for the week and the season, ping the winner and moves the optional winner role to them. Staff can
   play and win. The role is independent of the reaction awards, so someone can hold
   both.
 - Other people's picks stay hidden until each game kicks off.

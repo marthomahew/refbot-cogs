@@ -80,7 +80,7 @@ Each game locks at its own kickoff, so you can pick the Thursday game on Thursda
 
 If it's close after Sunday night, the people still in the running get tagged to guess the total points in Monday night's game. If the week ends in a tie, the closest guess wins it.
 
-Results go up after the last game. `/pickem standings` shows the week and the season, and `/pickem picks @someone` shows their picks once games have started.""",
+Results go up right after the last game of the week, and the next week opens for picks at the same time. `/pickem standings` shows the week and the season, and `/pickem picks @someone` shows their picks once games have started.""",
 
     "fun": """\
 ## 8-ball

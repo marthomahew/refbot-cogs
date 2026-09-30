@@ -40,6 +40,12 @@ try:
 except ZoneInfoNotFoundError:
     CENTRAL = timezone(timedelta(hours=-5), "CT")
 
+NFL_TEAMS = {
+    "ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", "DAL", "DEN", "DET",
+    "GB", "HOU", "IND", "JAX", "KC", "LAC", "LAR", "LV", "MIA", "MIN", "NE",
+    "NO", "NYG", "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WSH",
+}
+
 # ESPN statuses for games that aren't going to be played as scheduled.
 NOT_PLAYING = ("STATUS_POSTPONED", "STATUS_CANCELED")
 
@@ -94,6 +100,8 @@ def parse_week(data: dict) -> Optional[dict]:
                 game["winner"] = game["home"]
             elif game["away_score"] == game["home_score"]:
                 game["winner"] = "TIE"
+        if game["away"] not in NFL_TEAMS or game["home"] not in NFL_TEAMS:
+            continue  # e.g. the Pro Bowl (AFC vs NFC)
         games[str(event["id"])] = game
 
     label = f"Week {number}"
@@ -105,35 +113,36 @@ def parse_week(data: dict) -> Optional[dict]:
                         label = entry["label"]
     except (KeyError, IndexError, TypeError):
         pass
+    if not games:
+        return None  # nothing to pick (Pro Bowl week, or an empty week)
     return {"key": f"{season}-{stype}-{number}", "label": label, "season": season, "type": stype, "games": games}
 
 
-def held_week(data: dict, now: datetime) -> Optional[tuple[str, str]]:
-    """Same week turnover as the scoreboard (copied from scoreboard/espn.py, keep
-    them in step): ESPN flips to the new week at 2 AM Central on Wednesday, we
-    switch at 3 PM Central. Returns (season type, week) to fetch instead, or None."""
+def _calendar(data: dict) -> list[tuple[str, str]]:
+    """Every week in ESPN's calendar as (season type, week), in date order."""
     weeks = []
     for part in (data.get("leagues") or [{}])[0].get("calendar") or []:
         for entry in part.get("entries") or []:
             try:
-                weeks.append((str(part["value"]), str(entry["value"]),
-                              _time(entry["startDate"]), _time(entry["endDate"])))
+                weeks.append((_time(entry["startDate"]), str(part["value"]), str(entry["value"])))
             except (KeyError, TypeError, ValueError):
                 continue
-    weeks.sort(key=lambda w: w[2])
-    for i, (_, _, start, end) in enumerate(weeks):
-        if start <= now <= end:
-            break
-    else:
+    return [(t, w) for _, t, w in sorted(weeks)]
+
+
+def next_week(data: dict) -> Optional[tuple[str, str]]:
+    """(season type, week) of the week after the one ESPN sent, or None.
+
+    Pick'em moves on as soon as a week's last game is final (normally right
+    after Monday night) instead of waiting for ESPN to switch on Wednesday."""
+    try:
+        this = (str(data["season"]["type"]), str(data["week"]["number"]))
+    except (KeyError, TypeError):
         return None
-    if i == 0:
-        return None
-    local_start = start.astimezone(CENTRAL)
-    if local_start.weekday() != 2:
-        return None
-    if now >= local_start.replace(hour=15, minute=0, second=0, microsecond=0):
-        return None
-    return weeks[i - 1][0], weeks[i - 1][1]
+    weeks = _calendar(data)
+    if this in weeks and weeks.index(this) + 1 < len(weeks):
+        return weeks[weeks.index(this) + 1]
+    return None
 
 
 def merge_games(stored: dict, fresh: dict) -> bool:

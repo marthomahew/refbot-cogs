@@ -1,14 +1,13 @@
 """Weekly NFL pick'em, straight up.
 
 How a week goes:
-- When a new week opens (Wednesday 3 PM Central, same as the scoreboard), the
-  bot posts a "Make your picks" panel in the pick'em channel.
+- As soon as a week's last game is final (normally right after Monday night),
+  the bot posts that week's results and a "Make your picks" panel for the next.
 - The button (or `/pickem play`) opens a private picker: four games per page,
   one button per team. Picks save on click and each game locks at its kickoff.
 - Once every game before Monday is final, anyone who could still finish tied
   for first gets pinged to guess Monday night's total points (see nfl.py).
-- When the last game is final, the bot posts the results, pings the winner and
-  moves the (optional) winner role to them.
+- The results ping the winner and move the (optional) winner role to them.
 
 The rules and scoring live in nfl.py. A background task started in cog_load
 fetches ESPN every 2 to 30 minutes, depending on whether games are on.
@@ -174,7 +173,11 @@ class Pickem(commands.Cog):
         self._task: Optional[asyncio.Task] = None
         self._wake = asyncio.Event()
         self._locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)  # per server
-        self._current: Optional[dict] = None  # this week from ESPN (parsed)
+        self._current: Optional[dict] = None  # the week being played (parsed ESPN data)
+        # The week before it, while ESPN still calls it "this week" (from the end
+        # of Monday night until ESPN switches early Wednesday). Only its final
+        # results are needed from it.
+        self._finishing: Optional[dict] = None
         self._fetch_failing = False
         self._logos: dict[str, discord.PartialEmoji] = {}  # the scoreboard's team logo emoji
         self._logos_loaded_for: Optional[str] = None
@@ -257,10 +260,14 @@ class Pickem(commands.Cog):
     async def _fetch(self) -> None:
         try:
             data = await self._get_json()
-            held = nfl.held_week(data, datetime.now(timezone.utc))
-            if held:
-                data = await self._get_json({"seasontype": held[0], "week": held[1]})
-            current = nfl.parse_week(data)
+            current, finishing = nfl.parse_week(data), None
+            # Once every game of ESPN's week is final, move on to the next week
+            # right away (ESPN itself waits until Wednesday).
+            if current is None or all(nfl.is_done(g) for g in current["games"].values()):
+                ahead = nfl.next_week(data)
+                upcoming = nfl.parse_week(await self._get_json({"seasontype": ahead[0], "week": ahead[1]})) if ahead else None
+                if upcoming is not None:
+                    current, finishing = upcoming, current
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -271,7 +278,7 @@ class Pickem(commands.Cog):
         if self._fetch_failing:
             log.info("ESPN fetch working again")
             self._fetch_failing = False
-        self._current = current
+        self._current, self._finishing = current, finishing
 
     def _next_interval(self, now: datetime) -> int:
         """2 min while games are on (results and the tiebreaker prompt go out
@@ -336,19 +343,28 @@ class Pickem(commands.Cog):
             return
         key = self._current["key"]
 
-        # 1. Save ESPN's latest schedule and results.
+        # 1. Save ESPN's latest schedule and results (including last week's final
+        #    scores if we've just moved on from it).
         async with self._locks[guild.id]:
             weeks = await self.config.guild(guild).weeks()
-            week = weeks.get(key) or self._new_week(self._current)
-            changed = nfl.merge_games(week["games"], self._current["games"])
-            if key not in weeks:
-                await self.config.guild(guild).set_raw("weeks", key, value=week)
-            elif changed:
-                await self.config.guild(guild).set_raw("weeks", key, "games", value=week["games"])
+            for espn_week in (self._finishing, self._current):
+                if espn_week is None:
+                    continue
+                k = espn_week["key"]
+                if k not in weeks:
+                    if espn_week is self._finishing:
+                        continue  # a week nobody played here
+                    weeks[k] = self._new_week(espn_week)
+                    nfl.merge_games(weeks[k]["games"], espn_week["games"])
+                    await self.config.guild(guild).set_raw("weeks", k, value=weeks[k])
+                elif nfl.merge_games(weeks[k]["games"], espn_week["games"]):
+                    await self.config.guild(guild).set_raw("weeks", k, "games", value=weeks[k]["games"])
+            week = weeks[key]
             old = [k for k, w in weeks.items() if k != key and not w.get("posted")]
 
-        # 2. Wrap up any earlier week that never got its results (e.g. the bot was
-        #    down, or a game was postponed out of the week). Unfinished games don't count.
+        # 2. Results for the week that just ended (and any earlier week that never
+        #    got them, e.g. the bot was down or a game was postponed out of the
+        #    week). Unfinished games don't count.
         for old_key in old:
             await self._post_results(guild, channel, conf, old_key, weeks[old_key])
 
@@ -363,7 +379,8 @@ class Pickem(commands.Cog):
             if tb_ids:
                 await self._start_tiebreak(guild, channel, key, week, tb_ids)
 
-        # 5. Results, once the last game is final.
+        # 5. Results, if this is the last week of the season (otherwise step 2
+        #    does it once we've moved on to the next week).
         games = week["games"].values()
         if not week.get("posted") and games and all(nfl.is_done(g) for g in games):
             await self._post_results(guild, channel, conf, key, week)
