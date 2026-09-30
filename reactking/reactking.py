@@ -426,9 +426,11 @@ class ReactKing(commands.Cog):
     async def _award_step_locked(self, guild: discord.Guild, conf: dict) -> None:
         """One tick of the weekly timeline:
         1. from 30 min before: tally in the background (the slow part);
-        2. at the award time: post the card (full results, no roles yet);
+        2. at the award time: post the full results to the mod channel only;
         3. when Statbot announces its top chatter (or 15 min later): hand out
-           roles down the priority chain and add them to the card.
+           roles down the priority chain, then post the public card with the
+           role lines and ping the winners. Nothing public goes out before the
+           roles are settled.
         Progress is saved in config, so a restart never double-posts or skips roles.
         """
         now = datetime.now(timezone.utc)
@@ -463,13 +465,13 @@ class ReactKing(commands.Cog):
                 state["task"] = None  # try again next tick
                 return
 
-        # 2. Post the card at the award time.
+        # 2. At the award time: full results to the mods (the public card waits for the roles).
         if not posted:
             if now < slot:
                 return
             await conf_group.last_run.set(slot.isoformat())  # mark first: never double-post
-            card = await self._publish_card(guild, conf, state["results"])
-            await conf_group.card.set([card.channel.id, card.id] if card else None)
+            await conf_group.card.set(None)
+            await self._publish_mod_card(guild, conf, state["results"])
 
         # 3. Roles: as soon as Statbot has crowned its top chatter, or at the fallback time.
         if not roles_done:
@@ -634,43 +636,45 @@ class ReactKing(commands.Cog):
         full.set_footer(text="Last 7 days · 🛡️ = admin/mod (can't win the public award)")
         return embed, full
 
-    async def _publish_card(self, guild: discord.Guild, conf: dict, results: dict) -> Optional[discord.Message]:
-        """Post the public card (no roles yet) and the full mod card."""
-        channel = guild.get_channel(conf["awards_channel"])
+    async def _publish_mod_card(self, guild: discord.Guild, conf: dict, results: dict) -> None:
+        """Post the full results (staff included) to the mod channel."""
         mod_channel = guild.get_channel(conf["mod_channel"]) if conf["mod_channel"] else None
-        embed, full = self._cards(guild, conf, results)
-        card = None
-        if channel is not None:
-            try:
-                card = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-            except discord.HTTPException as e:
-                log.warning("Couldn't post awards in guild %s: %r", guild.id, e)
-        if mod_channel is not None:
-            try:
-                await mod_channel.send(embed=full, allowed_mentions=discord.AllowedMentions.none())
-            except discord.HTTPException as e:
-                log.warning("Couldn't post full award results in guild %s: %r", guild.id, e)
-        return card
+        if mod_channel is None:
+            return
+        _, full = self._cards(guild, conf, results)
+        try:
+            await mod_channel.send(embed=full, allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException as e:
+            log.warning("Couldn't post full award results in guild %s: %r", guild.id, e)
 
     async def _finish_card(self, guild: discord.Guild, conf: dict, results: dict, plan: list[dict]) -> None:
-        """Add the role lines to this week's card and congratulate the winners."""
+        """Post the public card, with the role lines, and congratulate the winners."""
         embed, _ = self._cards(guild, conf, results, plan)
         winners = sorted({k for item in plan for k in item["kings"]})
+        text = "Congrats " + ", ".join(f"<@{w}>" for w in winners) + "! 👑" if winners else None
+        mentions = discord.AllowedMentions(users=True, roles=False, everyone=False)
         card_ref = await self.config.guild(guild).card()
+        if not card_ref:
+            channel = guild.get_channel(conf["awards_channel"])
+            if channel is None:
+                return
+            try:
+                await channel.send(content=text, embed=embed, allowed_mentions=mentions)
+            except discord.HTTPException as e:
+                log.warning("Couldn't post awards in guild %s: %r", guild.id, e)
+            return
+        # A card posted before the roles by an older version of this cog: fill it in.
         card = None
-        if card_ref:
-            channel = guild.get_channel(card_ref[0])
-            if channel is not None:
-                try:
-                    card = await channel.fetch_message(card_ref[1])
-                    await card.edit(embed=embed)
-                except discord.HTTPException as e:
-                    log.warning("Couldn't update the awards card in guild %s: %r", guild.id, e)
-                    card = None
+        channel = guild.get_channel(card_ref[0])
+        if channel is not None:
+            try:
+                card = await channel.fetch_message(card_ref[1])
+                await card.edit(embed=embed)
+            except discord.HTTPException as e:
+                log.warning("Couldn't update the awards card in guild %s: %r", guild.id, e)
+                card = None
         if not winners:
             return
-        text = "Congrats " + ", ".join(f"<@{w}>" for w in winners) + "! 👑"
-        mentions = discord.AllowedMentions(users=True, roles=False, everyone=False)
         try:
             if card is not None:
                 await card.reply(text, allowed_mentions=mentions, mention_author=False)

@@ -171,10 +171,12 @@ Leaderboards for who gets the most of one reaction emoji (the :kek: king).
 
 **Weekly awards:** once a week (default Monday 12:00 Central):
 1. 30 minutes early, the bot tallies the week (the slow part).
-2. At the award time it posts the card: every award's full top 3.
+2. At the award time it posts the full results (staff included) to the mod channel
+   only. Nothing public yet.
 3. When Statbot posts its "Hear ye, hear ye! … Bow down to @winner" message (linked
    with `!awards statbot`), or 15 minutes later if it doesn't, the bot hands out the
-   roles and adds "🏅 role → @winner" lines to the card, then congratulates them.
+   roles, then posts the public card (every award's top 3 plus "🏅 role → @winner"
+   lines) with a "Congrats @winners! 👑" ping.
 
 **One award per person**, in priority order: Statbot's top chatter (always first,
 since Refbot can't take away Statbot's role) → then the order set with
