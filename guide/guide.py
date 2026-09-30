@@ -23,7 +23,7 @@ from discord import app_commands
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 
-from .topics import COACHES_FAQ, COACHES_REPORT, MEMBERS_FAQ, MEMBERS_REPORT, TEXT, TOPICS
+from .topics import AUTOHIDE, COACHES_FAQ, COACHES_REPORT, MEMBERS_FAQ, MEMBERS_REPORT, TEXT, TOPICS
 
 log = logging.getLogger("red.refbot.guide")
 
@@ -150,7 +150,7 @@ class Guide(commands.Cog):
     async def _live_values(self, guild: discord.Guild) -> dict:
         """Details read from the other cogs, so the guide matches the real settings."""
         values = {"report": "the report emoji", "chants": "- *(chants cog not loaded)*",
-                  "report_who": COACHES_REPORT, "report_faq": COACHES_FAQ}
+                  "report_who": COACHES_REPORT, "report_faq": COACHES_FAQ, "autohide": ""}
         modslash = self.bot.get_cog("ModSlash")
         if modslash is not None:
             conf = await modslash.config.guild(guild).all()
@@ -159,6 +159,8 @@ class Guide(commands.Cog):
                 values["report"] = str(emoji) if emoji else values["report"]
             elif conf.get("report_emoji_unicode"):
                 values["report"] = conf["report_emoji_unicode"]
+            if conf.get("auto_hide_threshold"):
+                values["autohide"] = AUTOHIDE  # only mention auto-delete while it's on
             if conf.get("report_who") == "members":
                 values["report_who"], values["report_faq"] = MEMBERS_REPORT, MEMBERS_FAQ
         chants = self.bot.get_cog("Chants")

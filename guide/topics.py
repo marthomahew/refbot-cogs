@@ -14,6 +14,9 @@ If you see a scam bot (the "add me" / "DM me" / free nitro type), tag an Assista
 Assistant Coaches and mods: react to the message with {report}. Your reaction is removed right away so nobody can see who reported it, and the mods get pinged with a link."""
 MEMBERS_REPORT = """\
 If you see a scam bot (the "add me" / "DM me" / free nitro type), react to the message with {report}. Your reaction is removed right away so nobody can see who reported it, and the mods get a report with a link."""
+AUTOHIDE = """
+
+If a message from a brand new account gets enough reports, the bot deletes it automatically. That only works on new accounts, so it can't be used on regular members."""
 COACHES_FAQ = "Only Assistant Coaches and mods can report with it, so for everyone else the bot just removes it. Tag a coach or a mod instead."
 MEMBERS_FAQ = "That's expected. It means the report went through."
 
@@ -51,9 +54,7 @@ If you want a repost gone, react 🗑️ on it. If you don't want a link fixed i
 
     "report": """\
 ## Reporting spam
-{report_who}
-
-If a message from a brand new account gets enough reports, the bot deletes it automatically. That only works on new accounts, so it can't be used on regular members.""",
+{report_who}{autohide}""",
 
     "reminders": """\
 ## Reminders
