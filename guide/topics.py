@@ -74,7 +74,7 @@ Reply to a message with `!download` to get its emotes or stickers as image files
 
     "pickem": """\
 ## Pick'em
-Every week, pick the winner of every NFL game. Hit **Make your picks** on the weekly post in the pick'em channel, or use `/pickem play`. Your picker is only visible to you, and picks save as soon as you click.
+Every week, pick the winner of every NFL game. Hit **Make your picks** on this week's board in the pick'em channel, or use `/pickem play`. The board also has the standings for the week and the season, and it updates as games finish. Your picker is only visible to you, and picks save as soon as you click.
 
 Each game locks at its own kickoff, so you can pick the Thursday game on Thursday and wait on Sunday's until Sunday. A game you don't pick counts as a loss.
 

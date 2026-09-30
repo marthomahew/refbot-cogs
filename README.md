@@ -298,8 +298,11 @@ Setup (bot owner): `!slash enable avatar`, `!slash enable "Get avatar" user`, th
 Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 
 - A new week opens as soon as the last game of the previous week is final (normally
-  right after Monday night): the bot posts last week's results, then a **Make your
-  picks** panel in the pick'em channel. (The scoreboard still waits until Wednesday
+  right after Monday night): the bot posts last week's results, then the new week's
+  **board** in the pick'em channel: one message with two cards, "Make your picks"
+  (button, next lock time, number of players) and the standings (this week and the
+  season). The board is edited in place as picks come in (about 30 s later) and as
+  games finish; last week's board is closed with its final standings. (The scoreboard still waits until Wednesday
   3 PM so Tuesday stays recap time.)
 - The button (or `/pickem play`) opens a private picker: four games per page, one
   button per team with team logos. Picks save on click. Each game locks at its own
@@ -327,7 +330,7 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 | `!pickemset channel #channel` | Admin | Where the panel, tiebreaker and results go |
 | `!pickemset role [@role]` | Admin | Weekly winner role (leave empty for none) |
 | `!pickemset toggle` | Admin | Turn pick'em on or off |
-| `!pickemset panel` | Admin | Post this week's panel again |
+| `!pickemset panel` | Admin | Repost this week's board at the bottom of the channel (the old one is deleted) |
 | `!pickemset preview` | Admin | Show the results card as it stands (no pings, no roles) |
 | `!pickemset show` | Admin | Settings, players this week, last problem |
 
