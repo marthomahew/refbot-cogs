@@ -4,18 +4,23 @@
   working after restarts (it's a "persistent view" with a fixed id).
 - `/guide` opens the dropdown privately; `[p]guide` posts it where you are.
 - Picking a topic shows it privately. "For mods" only opens for staff.
+- Panels keep themselves up to date: the bot remembers the panels it posted (and
+  any older panel the first time someone uses it) and re-edits them with the
+  current topic list whenever the cog loads, so a reload is enough after
+  changing topics.py. No reposting.
 The topic text lives in topics.py.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import weakref
 from typing import Optional
 
 import discord
 from discord import app_commands
-from redbot.core import commands
+from redbot.core import Config, commands
 from redbot.core.bot import Red
 
 from .topics import TEXT, TOPICS
@@ -24,6 +29,7 @@ log = logging.getLogger("red.refbot.guide")
 
 SELECT_ID = "refbot_guide:topic"  # fixed id so old panels keep working after a restart
 COLOR = discord.Color(0x4F2683)  # Vikings purple
+MAX_PANELS = 10  # remembered panels per server (oldest forgotten first)
 
 
 class TopicSelect(discord.ui.Select):
@@ -37,6 +43,7 @@ class TopicSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         await self.cog.show_topic(interaction, self.values[0])
+        await self.cog.check_panel(interaction)
 
 
 class GuideView(discord.ui.View):
@@ -57,11 +64,18 @@ class Guide(commands.Cog):
         self.persistent = GuideView(self)
         # Fresh copies sent with messages, so they can be tidied up on reload.
         self._sent: "weakref.WeakSet[GuideView]" = weakref.WeakSet()
+        # Panels to keep up to date: guild -> [[channel id, message id], ...]
+        self.config = Config.get_conf(self, identifier=0x5C0BE0A2D9, force_registration=True)
+        self.config.register_guild(panels=[])
+        self._task: Optional[asyncio.Task] = None
 
     async def cog_load(self) -> None:
         self.bot.add_view(self.persistent)
+        self._task = asyncio.create_task(self._refresh_all())
 
     async def cog_unload(self) -> None:
+        if self._task:
+            self._task.cancel()
         # Stop everything this copy of the cog registered, so after a reload
         # every panel is answered by the new code.
         for view in list(self._sent):
@@ -76,8 +90,60 @@ class Guide(commands.Cog):
         return view
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
-        # Stores nothing.
+        # Only stores where the panels are (channel and message ids), nothing about users.
         return
+
+    # ------------------------------------------------------------ keeping panels current
+
+    async def _remember(self, message: discord.Message) -> None:
+        pair = [message.channel.id, message.id]
+        async with self.config.guild(message.guild).panels() as panels:
+            if pair not in panels:
+                panels.append(pair)
+                del panels[:-MAX_PANELS]
+
+    async def _refresh_all(self) -> None:
+        """On load, re-edit every remembered panel with the current topics."""
+        await self.bot.wait_until_red_ready()
+        for guild_id, conf in (await self.config.all_guilds()).items():
+            guild = self.bot.get_guild(guild_id)
+            if guild is None:
+                continue
+            gone = []
+            for channel_id, message_id in conf["panels"]:
+                channel = guild.get_channel_or_thread(channel_id)
+                if channel is None:
+                    gone.append([channel_id, message_id])  # channel deleted
+                    continue
+                try:
+                    await channel.get_partial_message(message_id).edit(
+                        embed=self._panel_embed(), view=self._fresh_view())
+                except discord.NotFound:
+                    gone.append([channel_id, message_id])  # deleted; forget it
+                except discord.HTTPException as e:
+                    log.info("Couldn't refresh guide panel %s: %r", message_id, e)
+            if gone:
+                async with self.config.guild(guild).panels() as panels:
+                    panels[:] = [p for p in panels if p not in gone]
+
+    def _is_current(self, message: discord.Message) -> bool:
+        options = [o.value for row in message.components for c in getattr(row, "children", [])
+                   for o in getattr(c, "options", [])]
+        text = message.embeds[0].description if message.embeds else None
+        return options == [t[0] for t in TOPICS] and text == self._panel_embed().description
+
+    async def check_panel(self, interaction: discord.Interaction) -> None:
+        """After someone uses a panel: remember it, and update it if it's out of date
+        (e.g. a panel posted before this feature, or before a new topic was added)."""
+        message = interaction.message
+        if message is None or interaction.guild is None or message.flags.ephemeral:
+            return  # private /guide copies can't be edited later, and expire anyway
+        try:
+            await self._remember(message)
+            if not self._is_current(message):
+                await message.edit(embed=self._panel_embed(), view=self._fresh_view())
+        except discord.HTTPException as e:
+            log.info("Couldn't update guide panel %s: %r", message.id, e)
 
     # ------------------------------------------------------------ content
 
@@ -132,7 +198,8 @@ class Guide(commands.Cog):
     @commands.guild_only()
     async def guide(self, ctx: commands.Context):
         """Show the Refbot guide here."""
-        await ctx.send(embed=self._panel_embed(), view=self._fresh_view())
+        message = await ctx.send(embed=self._panel_embed(), view=self._fresh_view())
+        await self._remember(message)
 
     @guide.command(name="post")
     @commands.admin_or_permissions(manage_guild=True)
@@ -143,6 +210,7 @@ class Guide(commands.Cog):
         except discord.HTTPException as e:
             await ctx.send(f"Couldn't post there: {e.text or e.status}")
             return
+        await self._remember(message)
         await ctx.send(f"Guide posted: {message.jump_url}. Pin it if you like.")
 
     @app_commands.command(name="guide", description="How to use Refbot")

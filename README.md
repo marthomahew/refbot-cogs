@@ -342,6 +342,10 @@ Emotes & avatars, Pick'em, Fun, FAQ, For mods). Each topic opens privately; "For
 opens for staff. The report emoji and chant list are filled in from the live
 settings. The topic text lives in `guide/topics.py`.
 
+Panels update themselves: after changing topics, `!reload guide` re-edits every panel
+the bot remembers, and any older panel updates the first time someone uses it. No
+reposting needed.
+
 | Command | Who | What it does |
 | --- | --- | --- |
 | `!guide post #channel` | Admin | Post the permanent panel (keeps working after restarts) |
