@@ -118,7 +118,7 @@ Check `!reminders`. If the original message was deleted, the reminder posts in t
 ## Assistant Coaches
 If someone is causing trouble and needs a mod, use `/alert` or `!alert` in that channel, or right-click their message and pick Apps > Alert staff. That pings the mods with a link to the message so they have context. For scam bots, reacting with {report} does the same thing.
 
-The mods then have 15 minutes to respond. If none of them are active in that time, the bot turns on Emergency Mode.
+The mods then have 15 minutes to respond. If no mod posts, reacts, takes a mod action or hits Cancel timer on the alert in that time, the bot turns on Emergency Mode. It turns off again as soon as a mod is back.
 
 During Emergency Mode you can use:
 `!silence 3` - the bot deletes messages from anyone who joined in the last week. Use it for a raid or a big flood of spam. `!silence 0` turns it off.
