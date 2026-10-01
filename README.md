@@ -327,6 +327,8 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
   play and win. The role is independent of the reaction awards, so someone can hold
   both.
 - Other people's picks stay hidden until each game kicks off.
+- Every `/pickem` reply is private ("Only you can see this"). The `!pickem` versions
+  post in the channel.
 
 | Command | Who | What it does |
 | --- | --- | --- |
@@ -334,7 +336,8 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 | `!pickem` | Everyone | Post a button that opens the picker |
 | `/pickem picks [member]` | Everyone | Your picks in full (private); others' only for games that have started |
 | `!pickem picks [@member]` | Everyone | Picks for games that have started |
-| `/pickem standings`, `!pickem standings` | Everyone | This week's and the season's standings |
+| `/pickem standings` | Everyone | This week's and the season's standings (private) |
+| `!pickem standings` | Everyone | Same, posted in the channel |
 | `!pickemset channel #channel` | Admin | Where the panel, tiebreaker and results go |
 | `!pickemset role [@role]` | Admin | Weekly winner role (leave empty for none) |
 | `!pickemset toggle` | Admin | Turn pick'em on or off |

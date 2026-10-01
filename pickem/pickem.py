@@ -842,12 +842,11 @@ class Pickem(commands.Cog):
     @pickem_slash.command(name="standings", description="This week's and the season's pick'em standings")
     async def slash_standings(self, interaction: discord.Interaction):
         embed = await self._standings_embed(interaction.guild)
-        # Private in the pick'em channel itself, so it stays clean.
-        private = interaction.channel_id == await self.config.guild(interaction.guild).channel_id()
+        # Every /pickem reply is private ("Only you can see this").
         if embed is None:
             await interaction.response.send_message(self.NOT_READY, ephemeral=True)
         else:
-            await interaction.response.send_message(embed=embed, ephemeral=private)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ------------------------------------------------------------ admin commands
 
