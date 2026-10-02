@@ -92,7 +92,7 @@ Each game locks at its own kickoff, so you can pick the Thursday game on Thursda
 
 The board shows who's playing and how many games each person has picked, plus the full standings. Hit **Where do I stand?** any time to see your record, your rank and whether you can still win. Only you can see it.
 
-After Sunday night's game, everyone playing gets tagged with a quick check-in. If it's close, the people still in the running also guess the total points in Monday night's game, and if the week ends in a tie, the closest guess wins it.
+A few hours before each week's first game, last week's players get a reminder to make their picks. After Sunday night's game, everyone playing gets tagged with a quick check-in. If it's close, the people still in the running also guess the total points in Monday night's game, and if the week ends in a tie, the closest guess wins it.
 
 Results go up right after the last game of the week, and the next week opens for picks at the same time. `/pickem standings` shows the week and the season, and `/pickem picks @someone` shows their picks once games have started.""",
 
@@ -137,7 +137,7 @@ Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`
 Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working
 Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`
-Pick'em: `!pickemset show`, `!pickemset preview`, `!pickemset panel` if the weekly post got deleted
+Pick'em: `!pickemset show`, `!pickemset preview`, `!pickemset panel` if the weekly post got deleted, `!pickemset reminder <hours>`, `!pickemset pingrole @role`
 Emotes: reply to a message with `!steal` to add its emotes to the server
 
 Everything else is in the README on GitHub.""",

@@ -25,7 +25,7 @@ import asyncio
 import logging
 import math
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiohttp
@@ -195,6 +195,8 @@ class Pickem(commands.Cog):
             role_id=None,  # optional weekly winner role
             weeks={},  # week key ("2026-2-4") -> week dict, see nfl.py
             results_id=None,  # the latest results message (deleted when the next one posts)
+            remind_hours=4,  # ping before the week's first kickoff (0 = off)
+            ping_role_id=None,  # optional role pinged with that reminder (e.g. @Pickems)
         )
         self._session: Optional[aiohttp.ClientSession] = None
         self._task: Optional[asyncio.Task] = None
@@ -404,6 +406,10 @@ class Pickem(commands.Cog):
         if not week.get("opened") and any(not nfl.is_locked(g, now) for g in week["games"].values()):
             await self._post_board(guild, channel, key)
 
+        # 3b. Reminder a few hours before the week's first game (normally Thursday
+        #     afternoon), removed again once that game kicks off.
+        await self._remind(guild, channel, conf, key, week, weeks, now)
+
         # 4. Tiebreaker: once every game before Monday is final.
         if not week.get("tb", {}).get("done"):
             tb_ids = nfl.tiebreak_due(week, now)
@@ -418,6 +424,56 @@ class Pickem(commands.Cog):
 
         # 6. Keep this week's board current (only edits when something changed).
         await self._refresh_board(guild, channel, key)
+
+    # ------------------------------------------------------------ reminder
+
+    @staticmethod
+    def _week_order(key: str) -> tuple:
+        """"2026-2-4" -> (2026, 2, 4), so weeks sort in the order they're played."""
+        try:
+            return tuple(int(x) for x in key.split("-"))
+        except ValueError:
+            return (0,)
+
+    async def _remind(self, guild, channel, conf: dict, key: str, week: dict, weeks: dict, now: datetime) -> None:
+        playing = [g for _, g in nfl.ordered(week["games"]) if g["status"] not in nfl.NOT_PLAYING]
+        if not playing:
+            return
+        first = playing[0]
+        if week.get("reminder_msg") and nfl.is_locked(first, now):
+            await self._delete(channel, week["reminder_msg"])  # first game's started: not needed any more
+            await self._save(guild, key, reminder_msg=None)
+            return
+        hours = conf.get("remind_hours") or 0
+        if not hours or week.get("reminded") or nfl.is_locked(first, now):
+            return
+        if now < nfl.kickoff(first) - timedelta(hours=hours):
+            return
+        # Who to ping: everyone who played the previous week, plus the ping role.
+        earlier = sorted((k for k in weeks if self._week_order(k) < self._week_order(key)), key=self._week_order)
+        last_players = nfl.players(weeks[earlier[-1]]) if earlier else []
+        role = guild.get_role(conf.get("ping_role_id") or 0)
+        content = " ".join(([role.mention] if role else []) + [mention(u) for u in last_players])[:2000]
+        embed = discord.Embed(
+            title=f"{week['label']} Pick'em: first game today" if nfl.kickoff(first).astimezone(nfl.CENTRAL).date()
+            == now.astimezone(nfl.CENTRAL).date() else f"{week['label']} Pick'em starts soon",
+            description=(f"{matchup(first)} kicks off at **{nfl.kickoff_text(first)}** and locks when it starts. "
+                         "Get your picks in! You can leave the rest of the week for later."),
+            color=COLOR,
+        )
+        mentions = discord.AllowedMentions(users=[discord.Object(int(u)) for u in last_players[:100]],
+                                           roles=[role] if role else False)
+        try:
+            message = await channel.send(content or None, embed=embed, view=Buttons(self, OpenButton),
+                                         allowed_mentions=mentions)
+        except discord.HTTPException as e:
+            log.warning("Couldn't post pick'em reminder in guild %s: %r", guild.id, e)
+            await self._save(guild, key, reminded=True)  # don't retry every tick
+            return
+        await self._save(guild, key, reminded=True, reminder_msg=message.id)
+        if role and not role.mentionable and not channel.permissions_for(guild.me).mention_everyone:
+            self.last_error[guild.id] = (f"The reminder couldn't ping @{role.name}: make the role mentionable or "
+                                         "give me Mention @everyone, @here and All Roles.")
 
     # ------------------------------------------------------------ the weekly board
 
@@ -635,6 +691,7 @@ class Pickem(commands.Cog):
         """Remove a finished week's board and tiebreaker message."""
         await self._delete(channel, week.get("board_id"))
         await self._delete(channel, (week.get("tb") or {}).get("message_id"))
+        await self._delete(channel, week.get("reminder_msg"))
 
     async def _post_results(self, guild, channel, conf: dict, key: str, week: dict) -> bool:
         """Post a week's results. True if that week is now wrapped up."""
@@ -1030,6 +1087,30 @@ class Pickem(commands.Cog):
             await ctx.send(f"Weekly winners will get **{role.name}** (taken from last week's winner).",
                            allowed_mentions=discord.AllowedMentions.none())
 
+    @pickemset.command(name="reminder")
+    async def pickemset_reminder(self, ctx: commands.Context, hours: int):
+        """Ping last week's players this many hours before the week's first game (0 = off)."""
+        if not 0 <= hours <= 48:
+            await ctx.send("Use a number of hours from 0 (off) to 48.")
+            return
+        await self.config.guild(ctx.guild).remind_hours.set(hours)
+        await ctx.send(f"The reminder goes out {hours} hours before each week's first game." if hours
+                       else "No more reminders.")
+
+    @pickemset.command(name="pingrole")
+    async def pickemset_pingrole(self, ctx: commands.Context, role: Optional[discord.Role] = None):
+        """Also ping this role with the reminder (e.g. @Pickems), or leave empty for none."""
+        await self.config.guild(ctx.guild).ping_role_id.set(role.id if role else None)
+        if role is None:
+            await ctx.send("The reminder will only ping last week's players.")
+            return
+        note = ""
+        if not role.mentionable and not ctx.guild.me.guild_permissions.mention_everyone:
+            note = (" Heads up: I can't ping it yet. Make the role mentionable, or give me "
+                    "Mention @everyone, @here and All Roles.")
+        await ctx.send(f"The reminder will also ping **{role.name}**.{note}",
+                       allowed_mentions=discord.AllowedMentions.none())
+
     @pickemset.command(name="toggle")
     async def pickemset_toggle(self, ctx: commands.Context):
         """Turn pick'em on or off."""
@@ -1106,6 +1187,8 @@ class Pickem(commands.Cog):
             f"Running: {'yes' if conf['enabled'] else 'no'}",
             f"Channel: {channel.mention if channel else 'not set'}",
             f"Winner role: {role.name if role else 'none'}",
+            f"Reminder: {str(conf['remind_hours']) + ' hours before the first game' if conf['remind_hours'] else 'off'}"
+            + (f", pings {ping.name}" if (ping := ctx.guild.get_role(conf['ping_role_id'] or 0)) else ""),
             f"This week: {self._current['label'] if self._current else 'not loaded yet'}"
             + (f", {len(nfl.players(week))} playing" if week else ""),
             f"Next ESPN check in about {self.interval // 60 or 1} min",

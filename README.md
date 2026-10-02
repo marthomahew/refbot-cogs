@@ -326,6 +326,10 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
   where every game is on one day have no tiebreaker.
 - **Where do I stand?** answers privately: your record, your rank, whether you can
   still win or tie, your remaining picks, tiebreaker guess, and season record.
+- **Reminder:** 4 hours before the week's first game (normally Thursday 3:15 PM CT)
+  the bot pings everyone who played the previous week plus an optional role (e.g.
+  @Pickems) with a Make your picks button. It's deleted once that game kicks off.
+  The role needs to be mentionable, or the bot needs Mention @everyone, @here and All Roles.
 - **Sunday night check-in:** once every game before Monday is final, the bot pings
   everyone playing that week with a Where do I stand? button. If it's close, the same
   message is the tiebreaker (contenders get an Enter my guess button).
@@ -348,6 +352,8 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 | `!pickemset channel #channel` | Admin | Where the panel, tiebreaker and results go |
 | `!pickemset role [@role]` | Admin | Weekly winner role (leave empty for none) |
 | `!pickemset toggle` | Admin | Turn pick'em on or off |
+| `!pickemset reminder <hours>` | Admin | Hours before the first game to send the reminder (default 4, 0 = off) |
+| `!pickemset pingrole [@role]` | Admin | Also ping this role with the reminder (leave empty for none) |
 | `!pickemset panel` | Admin | Repost this week's board at the bottom of the channel (the old one is deleted) |
 | `!pickemset preview` | Admin | Show the results card as it stands (no pings, no roles) |
 | `!pickemset show` | Admin | Settings, players this week, last problem |
