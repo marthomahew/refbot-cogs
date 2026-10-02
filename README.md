@@ -304,9 +304,11 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 - A new week opens as soon as the last game of the previous week is final (normally
   right after Monday night): the bot posts last week's results, then the new week's
   **board** in the pick'em channel: one message with three cards, "Make your picks"
-  (next lock time), **Players** (everyone playing and how many games they've picked,
-  never which teams) and the standings (everyone, this week and the season). Buttons:
-  **Make your picks** and **Where do I stand?** The board is edited in place as picks come in (about 30 s later) and as
+  (next lock time), **Players** (who's playing and how many games they've picked,
+  never which teams) and the standings (this week and the season). The board shows
+  the top 10 of each list. Buttons: **Make your picks**, **Where do I stand?** and
+  **Full list**, which opens a private copy of every list, 10 per page, with Back /
+  Next and a menu to switch between this week, the season and players. The board is edited in place as picks come in (about 30 s later) and as
   games finish.
 - The channel is meant to be read-only for members (deny Send Messages for @everyone;
   buttons still work). The bot keeps it tidy: at most the current board, last week's
@@ -347,8 +349,8 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 | `!pickem` | Everyone | Post a button that opens the picker |
 | `/pickem picks [member]` | Everyone | Your picks in full (private); others' only for games that have started |
 | `!pickem picks [@member]` | Everyone | Picks for games that have started |
-| `/pickem standings` | Everyone | This week's and the season's standings (private) |
-| `!pickem standings` | Everyone | Same, posted in the channel |
+| `/pickem standings` | Everyone | Full standings and players, private and paged (same as **Full list**) |
+| `!pickem standings` | Everyone | Top 10 standings, posted in the channel |
 | `!pickemset channel #channel` | Admin | Where the panel, tiebreaker and results go |
 | `!pickemset role [@role]` | Admin | Weekly winner role (leave empty for none) |
 | `!pickemset toggle` | Admin | Turn pick'em on or off |

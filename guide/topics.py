@@ -90,7 +90,7 @@ Every week, pick the winner of every NFL game. Hit **Make your picks** on this w
 
 Each game locks at its own kickoff, so you can pick the Thursday game on Thursday and wait on Sunday's until Sunday. A game you don't pick counts as a loss.
 
-The board shows who's playing and how many games each person has picked, plus the full standings. Hit **Where do I stand?** any time to see your record, your rank and whether you can still win. Only you can see it.
+The board shows the top 10 players and standings. Hit **Full list** to page through everyone, only visible to you. Hit **Where do I stand?** any time to see your record, your rank and whether you can still win. Only you can see it.
 
 A few hours before each week's first game, last week's players get a reminder to make their picks. After Sunday night's game, everyone playing gets tagged with a quick check-in. If it's close, the people still in the running also guess the total points in Monday night's game, and if the week ends in a tie, the closest guess wins it.
 

@@ -41,8 +41,10 @@ log = logging.getLogger("red.refbot.pickem")
 OPEN_ID = "refbot_pickem:open"  # fixed ids so old panels keep working after a restart
 GUESS_ID = "refbot_pickem:guess"
 STATUS_ID = "refbot_pickem:status"
+LIST_ID = "refbot_pickem:list"
 PER_PAGE = 4  # games per picker page (one row each; the 5th row is for page buttons)
-TABLE_SIZE = 40  # rows shown per table on the board / standings (everyone, at this server's size)
+TABLE_SIZE = 10  # rows per table on the board (the "Full list" button shows everyone)
+LIST_PAGE = 10  # rows per page in the private full list
 CARD_SIZE = 5  # rows shown on the results card
 COLOR = discord.Color(0x4F2683)  # Vikings purple
 
@@ -81,6 +83,57 @@ class StatusButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await self.cog.show_status(interaction)
+
+
+class ListButton(discord.ui.Button):
+    def __init__(self, cog: "Pickem"):
+        super().__init__(label="Full list", emoji="📋", style=discord.ButtonStyle.secondary, custom_id=LIST_ID)
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.cog.show_list(interaction)
+
+
+class ListView(discord.ui.View):
+    """A private, paged copy of the board's lists: 10 rows a page, a menu to
+    switch between this week / season / players. Its buttons have random ids
+    (never the board's fixed ones; see GuessButton for why)."""
+
+    MODES = [("week", "This week's standings"), ("season", "Season standings"), ("players", "Players this week")]
+
+    def __init__(self, cog: "Pickem", lists: dict[str, tuple[str, list[str]]], mode: str):
+        super().__init__(timeout=15 * 60)
+        self.cog, self.lists, self.mode, self.page = cog, lists, mode, 0
+        self.menu = discord.ui.Select(options=[discord.SelectOption(label=label, value=key) for key, label in self.MODES],
+                                      row=0)
+        self.menu.callback = self.switch
+        self.back = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary, row=1)
+        self.back.callback = lambda i: self.turn(i, -1)
+        self.where = discord.ui.Button(disabled=True, row=1, label="Page 1 of 1")
+        self.next = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary, row=1)
+        self.next.callback = lambda i: self.turn(i, 1)
+        for item in (self.menu, self.back, self.where, self.next):
+            self.add_item(item)
+
+    def render(self) -> discord.Embed:
+        title, lines = self.lists[self.mode]
+        pages = max(1, math.ceil(len(lines) / LIST_PAGE))
+        self.page = max(0, min(self.page, pages - 1))
+        for option in self.menu.options:
+            option.default = option.value == self.mode
+        self.back.disabled = self.page == 0
+        self.next.disabled = self.page >= pages - 1
+        self.where.label = f"Page {self.page + 1} of {pages}"
+        shown = lines[self.page * LIST_PAGE:(self.page + 1) * LIST_PAGE]
+        return discord.Embed(title=title, description="\n".join(shown) or "Nothing here yet.", color=COLOR)
+
+    async def switch(self, interaction: discord.Interaction):
+        self.mode, self.page = self.menu.values[0], 0
+        await interaction.response.edit_message(embed=self.render(), view=self)
+
+    async def turn(self, interaction: discord.Interaction, step: int):
+        self.page += step
+        await interaction.response.edit_message(embed=self.render(), view=self)
 
 
 class GuessButton(discord.ui.Button):
@@ -217,7 +270,7 @@ class Pickem(commands.Cog):
         # Registered "catch-all" view that answers every pick'em button, including
         # ones posted before a restart. Never sent: every message gets a fresh
         # copy (see guide.py for why).
-        self._persistent = [Buttons(self, OpenButton, StatusButton, GuessButton)]
+        self._persistent = [Buttons(self, OpenButton, StatusButton, ListButton, GuessButton)]
 
     async def cog_load(self) -> None:
         self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20))
@@ -524,17 +577,23 @@ class Pickem(commands.Cog):
         if not made:
             embed.description = "Nobody yet. Be the first!"
             return embed
-        rows = sorted(made.items(), key=lambda kv: (-kv[1], kv[0]))
-        lines = [f"{mention(uid)} {n}/{len(playing)}{' ✅' if n == len(playing) else ''}" for uid, n in rows]
-        self._add_lines(embed, lines, TABLE_SIZE)
+        self._add_lines(embed, self._player_lines(week), TABLE_SIZE)
         return embed
+
+    @staticmethod
+    def _player_lines(week: dict) -> list[str]:
+        """"@A 16/16 ✅", most picks first."""
+        playing = [gid for gid, g in week["games"].items() if g["status"] not in nfl.NOT_PLAYING]
+        made = {uid: sum(1 for gid in playing if gid in picks) for uid, picks in week["picks"].items() if picks}
+        rows = sorted(made.items(), key=lambda kv: (-kv[1], kv[0]))
+        return [f"{mention(uid)} {n}/{len(playing)}{' ✅' if n == len(playing) else ''}" for uid, n in rows]
 
     @staticmethod
     def _add_lines(embed: discord.Embed, lines: list[str], limit: int, name: str = "\u200b") -> None:
         """Put a long list into the embed, split across fields (Discord allows
         1024 characters per field). Anything past `limit` is summarised."""
         if len(lines) > limit:
-            lines = lines[:limit] + [f"...and {len(lines) - limit} more"]
+            lines = lines[:limit] + [f"...and {len(lines) - limit} more (hit **Full list**)"]
         chunk: list[str] = []
         for line in lines:
             if chunk and len("\n".join(chunk + [line])) > 1024:
@@ -552,7 +611,7 @@ class Pickem(commands.Cog):
         weeks = await self.config.guild(guild).weeks()
         embeds = self._board(weeks[key], weeks, datetime.now(timezone.utc))
         try:
-            message = await channel.send(embeds=embeds, view=Buttons(self, OpenButton, StatusButton))
+            message = await channel.send(embeds=embeds, view=Buttons(self, OpenButton, StatusButton, ListButton))
         except discord.HTTPException as e:
             self.last_error[guild.id] = f"Couldn't post the board: {e.text or e.status}"
             log.warning("Couldn't post pick'em board in guild %s: %r", guild.id, e)
@@ -575,7 +634,7 @@ class Pickem(commands.Cog):
             return
         try:
             await channel.get_partial_message(week["board_id"]).edit(
-                embeds=embeds, view=Buttons(self, OpenButton, StatusButton))
+                embeds=embeds, view=Buttons(self, OpenButton, StatusButton, ListButton))
         except discord.NotFound:
             await self._save(guild, key, board_id=None)  # deleted; `pickemset panel` posts a new one
             return
@@ -938,6 +997,33 @@ class Pickem(commands.Cog):
             lines.append(f"\nSeason: **{nfl.record_text(mine[1])}**, {self._place(uid, rows)}.")
         return "\n".join(lines), offer_guess
 
+    def _week_for(self, interaction: discord.Interaction, weeks: dict) -> Optional[str]:
+        """Which week a button belongs to, from the message it's on (board, Sunday
+        check-in or results). Anything else (e.g. a slash command) = this week."""
+        msg_id = interaction.message.id if interaction.message else None
+        return next((k for k, w in weeks.items()
+                     if msg_id and msg_id in (w.get("board_id"), w.get("results_msg"),
+                                              (w.get("tb") or {}).get("message_id"))),
+                    self._current["key"] if self._current else None)
+
+    async def show_list(self, interaction: discord.Interaction, mode: str = "week") -> None:
+        """The "Full list" button and /pickem standings: everyone, 10 per page, privately."""
+        guild = interaction.guild
+        weeks = await self.config.guild(guild).weeks() if guild else {}
+        week = weeks.get(self._week_for(interaction, weeks))
+        if week is None:
+            await interaction.response.send_message(self.NOT_READY, ephemeral=True)
+            return
+        graded = any(g["winner"] not in (None, "VOID") for g in week["games"].values())
+        lists = {
+            "week": (f"{week['label']} standings", self._table(nfl.standings(week)) if graded else []),
+            "season": (f"{week['season']} season standings",
+                       self._season_table(nfl.season_standings(weeks, week["season"]))),
+            "players": (f"{week['label']} players", self._player_lines(week)),
+        }
+        view = ListView(self, lists, mode)
+        await interaction.response.send_message(embed=view.render(), view=view, ephemeral=True)
+
     async def show_status(self, interaction: discord.Interaction) -> None:
         """The "Where do I stand?" button: works out which week from the message
         it's on (board, Sunday check-in or results), then answers privately."""
@@ -945,11 +1031,7 @@ class Pickem(commands.Cog):
         if guild is None:
             return
         weeks = await self.config.guild(guild).weeks()
-        msg_id = interaction.message.id if interaction.message else None
-        key = next((k for k, w in weeks.items()
-                    if msg_id in (w.get("board_id"), w.get("results_msg"), (w.get("tb") or {}).get("message_id"))),
-                   self._current["key"] if self._current else None)
-        week = weeks.get(key)
+        week = weeks.get(self._week_for(interaction, weeks))
         if week is None:
             await interaction.response.send_message(self.NOT_READY, ephemeral=True)
             return
@@ -1046,12 +1128,8 @@ class Pickem(commands.Cog):
 
     @pickem_slash.command(name="standings", description="This week's and the season's pick'em standings")
     async def slash_standings(self, interaction: discord.Interaction):
-        embed = await self._standings_embed(interaction.guild)
-        # Every /pickem reply is private ("Only you can see this").
-        if embed is None:
-            await interaction.response.send_message(self.NOT_READY, ephemeral=True)
-        else:
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+        # Private and paged, the same as the board's "Full list" button.
+        await self.show_list(interaction)
 
     # ------------------------------------------------------------ admin commands
 
