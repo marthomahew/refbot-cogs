@@ -303,9 +303,10 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 
 - A new week opens as soon as the last game of the previous week is final (normally
   right after Monday night): the bot posts last week's results, then the new week's
-  **board** in the pick'em channel: one message with two cards, "Make your picks"
-  (button, next lock time, number of players) and the standings (this week and the
-  season). The board is edited in place as picks come in (about 30 s later) and as
+  **board** in the pick'em channel: one message with three cards, "Make your picks"
+  (next lock time), **Players** (everyone playing and how many games they've picked,
+  never which teams) and the standings (everyone, this week and the season). Buttons:
+  **Make your picks** and **Where do I stand?** The board is edited in place as picks come in (about 30 s later) and as
   games finish.
 - The channel is meant to be read-only for members (deny Send Messages for @everyone;
   buttons still work). The bot keeps it tidy: at most the current board, last week's
@@ -323,7 +324,13 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
   Monday night's game (both games added together on a Monday doubleheader). Guesses
   lock at kickoff. Closest guess wins a tie; if still tied, they share the week. Weeks
   where every game is on one day have no tiebreaker.
-- The results show the top 5 for the week and the season, ping the winner and moves the optional winner role to them. Staff can
+- **Where do I stand?** answers privately: your record, your rank, whether you can
+  still win or tie, your remaining picks, tiebreaker guess, and season record.
+- **Sunday night check-in:** once every game before Monday is final, the bot pings
+  everyone playing that week with a Where do I stand? button. If it's close, the same
+  message is the tiebreaker (contenders get an Enter my guess button).
+- The results ping everyone who played (with a Where do I stand? button), show the
+  top 5 for the week and the season, name the winner and moves the optional winner role to them. Staff can
   play and win. The role is independent of the reaction awards, so someone can hold
   both.
 - Other people's picks stay hidden until each game kicks off.

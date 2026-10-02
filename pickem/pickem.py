@@ -40,8 +40,9 @@ log = logging.getLogger("red.refbot.pickem")
 
 OPEN_ID = "refbot_pickem:open"  # fixed ids so old panels keep working after a restart
 GUESS_ID = "refbot_pickem:guess"
+STATUS_ID = "refbot_pickem:status"
 PER_PAGE = 4  # games per picker page (one row each; the 5th row is for page buttons)
-TABLE_SIZE = 10  # rows shown in standings
+TABLE_SIZE = 40  # rows shown per table on the board / standings (everyone, at this server's size)
 CARD_SIZE = 5  # rows shown on the results card
 COLOR = discord.Color(0x4F2683)  # Vikings purple
 
@@ -63,28 +64,47 @@ def matchup(game: dict) -> str:
 # ------------------------------------------------------------------ views
 
 
-class PanelView(discord.ui.View):
-    """The "Make your picks" button on the weekly panel."""
-
-    def __init__(self, cog: "Pickem", timeout: Optional[float] = None):
-        super().__init__(timeout=timeout)
+class OpenButton(discord.ui.Button):
+    def __init__(self, cog: "Pickem"):
+        super().__init__(label="Make your picks", emoji="🏈", style=discord.ButtonStyle.primary, custom_id=OPEN_ID)
         self.cog = cog
 
-    @discord.ui.button(label="Make your picks", emoji="🏈", style=discord.ButtonStyle.primary, custom_id=OPEN_ID)
-    async def open_picker(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
         await self.cog.open_picker(interaction)
 
 
-class GuessView(discord.ui.View):
-    """The button on the tiebreaker message."""
-
-    def __init__(self, cog: "Pickem", timeout: Optional[float] = None):
-        super().__init__(timeout=timeout)
+class StatusButton(discord.ui.Button):
+    def __init__(self, cog: "Pickem"):
+        super().__init__(label="Where do I stand?", emoji="📊", style=discord.ButtonStyle.secondary,
+                         custom_id=STATUS_ID)
         self.cog = cog
 
-    @discord.ui.button(label="Enter my guess", emoji="🔢", style=discord.ButtonStyle.primary, custom_id=GUESS_ID)
-    async def guess(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
+        await self.cog.show_status(interaction)
+
+
+class GuessButton(discord.ui.Button):
+    def __init__(self, cog: "Pickem", one_off: bool = False):
+        # On a private reply the button gets a random id instead of GUESS_ID:
+        # discord.py files private replies to a click under the same key as the
+        # registered always-on buttons, and when the private copy expired it
+        # would take the shared GUESS_ID registration down with it.
+        kwargs = {} if one_off else {"custom_id": GUESS_ID}
+        super().__init__(label="Enter my guess", emoji="🔢", style=discord.ButtonStyle.primary, **kwargs)
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
         await self.cog.open_guess(interaction)
+
+
+class Buttons(discord.ui.View):
+    """A row of pick'em buttons. Each button has a fixed id, so buttons on old
+    messages keep working after a restart (the cog registers one of each)."""
+
+    def __init__(self, cog: "Pickem", *kinds: type, timeout: Optional[float] = None):
+        super().__init__(timeout=timeout)
+        for kind in kinds:
+            self.add_item(kind(cog))
 
 
 class GuessForm(discord.ui.Modal, title="Tiebreaker guess"):
@@ -192,9 +212,10 @@ class Pickem(commands.Cog):
         self._board_shown: dict[tuple[int, str], str] = {}  # (guild, week) -> what the board last showed
         self._board_pending: dict[int, asyncio.Task] = {}  # guild -> delayed board update after picks
         self.last_error: dict[int, str] = {}  # guild id -> last problem, shown in `pickemset show`
-        # Registered "catch-all" views that answer old panels after a restart.
-        # Never sent: every message gets a fresh copy (see guide.py for why).
-        self._persistent = [PanelView(self), GuessView(self)]
+        # Registered "catch-all" view that answers every pick'em button, including
+        # ones posted before a restart. Never sent: every message gets a fresh
+        # copy (see guide.py for why).
+        self._persistent = [Buttons(self, OpenButton, StatusButton, GuessButton)]
 
     async def cog_load(self) -> None:
         self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20))
@@ -415,7 +436,6 @@ class Pickem(commands.Cog):
             lines.append(f"Next lock: **{nfl.kickoff_text(open_games[0])}**, {matchup(open_games[0])}")
         else:
             lines.append("Every game has kicked off. Picks are locked.")
-        lines.append(f"Players this week: **{len(nfl.players(week))}**")
         lines += ["", "Most wins takes the week. If it's close after Sunday night, the people still "
                       "in it get a tiebreaker on Monday night's total points."]
         embed.description = "\n".join(lines)
@@ -427,26 +447,56 @@ class Pickem(commands.Cog):
         graded = any(g["winner"] not in (None, "VOID") for g in week["games"].values())
         table = nfl.standings(week)
         if not table:
-            week_text = "No picks yet."
+            embed.add_field(name=week["label"], value="No picks yet.", inline=False)
         elif not graded:
-            week_text = "No games are final yet."
+            embed.add_field(name=week["label"], value="No games are final yet.", inline=False)
         else:
-            week_text = self._table(table, TABLE_SIZE)
-        embed.add_field(name=week["label"], value=week_text, inline=False)
+            self._add_lines(embed, self._table(table), TABLE_SIZE, name=week["label"])
         season = nfl.season_standings(weeks, week["season"])
-        embed.add_field(name=f"{week['season']} season",
-                        value=self._season_table(season, TABLE_SIZE) or "Nothing yet.", inline=False)
+        if season:
+            self._add_lines(embed, self._season_table(season), TABLE_SIZE, name=f"{week['season']} season")
+        else:
+            embed.add_field(name=f"{week['season']} season", value="Nothing yet.", inline=False)
         return embed
 
+    def _players_card(self, week: dict) -> discord.Embed:
+        """Middle card of the board: who's playing and how many games each has picked
+        (never which teams)."""
+        playing = [gid for gid, g in week["games"].items() if g["status"] not in nfl.NOT_PLAYING]
+        made = {uid: sum(1 for gid in playing if gid in picks) for uid, picks in week["picks"].items() if picks}
+        embed = discord.Embed(title=f"Players ({len(made)})", color=COLOR)
+        if not made:
+            embed.description = "Nobody yet. Be the first!"
+            return embed
+        rows = sorted(made.items(), key=lambda kv: (-kv[1], kv[0]))
+        lines = [f"{mention(uid)} {n}/{len(playing)}{' ✅' if n == len(playing) else ''}" for uid, n in rows]
+        self._add_lines(embed, lines, TABLE_SIZE)
+        return embed
+
+    @staticmethod
+    def _add_lines(embed: discord.Embed, lines: list[str], limit: int, name: str = "\u200b") -> None:
+        """Put a long list into the embed, split across fields (Discord allows
+        1024 characters per field). Anything past `limit` is summarised."""
+        if len(lines) > limit:
+            lines = lines[:limit] + [f"...and {len(lines) - limit} more"]
+        chunk: list[str] = []
+        for line in lines:
+            if chunk and len("\n".join(chunk + [line])) > 1024:
+                embed.add_field(name=name, value="\n".join(chunk), inline=False)
+                name, chunk = "\u200b", []
+            chunk.append(line)
+        if chunk:
+            embed.add_field(name=name, value="\n".join(chunk), inline=False)
+
     def _board(self, week: dict, weeks: dict, now: datetime) -> list[discord.Embed]:
-        return [self._panel_embed(week, now), self._standings_card(week, weeks)]
+        return [self._panel_embed(week, now), self._players_card(week), self._standings_card(week, weeks)]
 
     async def _post_board(self, guild: discord.Guild, channel: discord.TextChannel, key: str) -> bool:
         """Post this week's board and remember it so it can be edited later."""
         weeks = await self.config.guild(guild).weeks()
         embeds = self._board(weeks[key], weeks, datetime.now(timezone.utc))
         try:
-            message = await channel.send(embeds=embeds, view=PanelView(self))
+            message = await channel.send(embeds=embeds, view=Buttons(self, OpenButton, StatusButton))
         except discord.HTTPException as e:
             self.last_error[guild.id] = f"Couldn't post the board: {e.text or e.status}"
             log.warning("Couldn't post pick'em board in guild %s: %r", guild.id, e)
@@ -469,7 +519,7 @@ class Pickem(commands.Cog):
             return
         try:
             await channel.get_partial_message(week["board_id"]).edit(
-                embeds=embeds, view=PanelView(self))
+                embeds=embeds, view=Buttons(self, OpenButton, StatusButton))
         except discord.NotFound:
             await self._save(guild, key, board_id=None)  # deleted; `pickemset panel` posts a new one
             return
@@ -498,10 +548,20 @@ class Pickem(commands.Cog):
 
         self._board_pending[guild.id] = asyncio.create_task(later())
 
+    @staticmethod
+    def _ping(uids: list[str]) -> tuple[str, discord.AllowedMentions]:
+        """Message text that pings these members (and only them)."""
+        return (" ".join(mention(u) for u in uids)[:2000],
+                discord.AllowedMentions(users=[discord.Object(int(u)) for u in uids[:100]]))
+
     async def _start_tiebreak(self, guild, channel, key: str, week: dict, tb_ids: list[str]) -> None:
+        """Sunday night check-in, once every game before the last day is final.
+        Pings everyone playing this week with a "Where do I stand?" button. If
+        it's close, it's also the tiebreaker: contenders guess the total points."""
         who = nfl.contenders(week, tb_ids)
         tb = {"games": tb_ids, "contenders": who, "guesses": {}, "done": True, "message_id": None}
-        if len(who) >= 2:
+        playing = nfl.players(week)
+        if playing:
             tb_games = [week["games"][gid] for gid in tb_ids]
             first = min(tb_games, key=nfl.kickoff)
             day = nfl.kickoff(first).astimezone(nfl.CENTRAL).strftime("%A")
@@ -509,24 +569,23 @@ class Pickem(commands.Cog):
                 what = f"{day} night's game, {matchup(first)}"
             else:
                 what = f"{day}'s games ({', '.join(matchup(g) for g in tb_games)}) added together"
-            embed = discord.Embed(
-                title=f"{week['label']} Pick'em tiebreaker",
-                description=(
-                    f"It's close. {len(who)} of you could still finish tied for first, so guess the total "
-                    f"points scored in {what}. If the week ends in a tie, the closest guess wins it.\n\n"
-                    f"Guesses lock at kickoff, **{nfl.kickoff_text(first)}**. You can still change your "
-                    f"{day} pick in the picker until then."
-                ),
-                color=COLOR,
-            )
+            lines = [f"Everything before {day} is final. Hit **Where do I stand?** to see your record, "
+                     "where you rank, and whether you can still win the week. Only you can see it."]
+            buttons = [StatusButton]
+            if len(who) >= 2:
+                lines += ["", f"**Tiebreaker:** {names(who)} could still finish tied for first. Guess the total "
+                              f"points scored in {what}. If the week ends in a tie, the closest guess wins it. "
+                              f"Guesses lock at kickoff, **{nfl.kickoff_text(first)}**."]
+                buttons.append(GuessButton)
+            embed = discord.Embed(title=f"{week['label']} Pick'em: {day} night is all that's left",
+                                  description="\n".join(lines), color=COLOR)
+            content, mentions = self._ping(playing)
             try:
-                message = await channel.send(
-                    " ".join(mention(u) for u in who), embed=embed, view=GuessView(self),
-                    allowed_mentions=discord.AllowedMentions(users=[discord.Object(int(u)) for u in who]),
-                )
+                message = await channel.send(content, embed=embed, view=Buttons(self, *buttons),
+                                             allowed_mentions=mentions)
                 tb["message_id"] = message.id
             except discord.HTTPException as e:
-                log.warning("Couldn't post pick'em tiebreaker in guild %s: %r", guild.id, e)
+                log.warning("Couldn't post pick'em check-in in guild %s: %r", guild.id, e)
                 return  # try again next tick
         await self._save(guild, key, tb=tb)
 
@@ -549,22 +608,20 @@ class Pickem(commands.Cog):
                 lines.append(f"Tiebreaker: {total} total points. {said}.")
         embed = discord.Embed(title=f"{week['label']} Pick'em results", description="\n".join(lines) or None, color=COLOR)
         if table:
-            embed.add_field(name="This week", value=self._table(table, CARD_SIZE), inline=False)
+            self._add_lines(embed, self._table(table), CARD_SIZE, name="This week")
         season = nfl.season_standings(weeks, week["season"])
         if season:
-            embed.add_field(name=f"{week['season']} season", value=self._season_table(season, CARD_SIZE), inline=False)
+            self._add_lines(embed, self._season_table(season), CARD_SIZE, name=f"{week['season']} season")
         return embed, won
 
     @staticmethod
-    def _table(rows, size: int) -> str:
-        return "\n".join(f"{i}. {mention(uid)} {nfl.record_text(rec)}" for i, (uid, rec) in enumerate(rows[:size], 1))
+    def _table(rows) -> list[str]:
+        return [f"{i}. {mention(uid)} {nfl.record_text(rec)}" for i, (uid, rec) in enumerate(rows, 1)]
 
     @staticmethod
-    def _season_table(rows, size: int) -> str:
-        return "\n".join(
-            f"{i}. {mention(uid)} {nfl.record_text(rec)} ({played} week{'s' if played != 1 else ''})"
-            for i, (uid, rec, played) in enumerate(rows[:size], 1)
-        )
+    def _season_table(rows) -> list[str]:
+        return [f"{i}. {mention(uid)} {nfl.record_text(rec)} ({played} week{'s' if played != 1 else ''})"
+                for i, (uid, rec, played) in enumerate(rows, 1)]
 
     @staticmethod
     async def _delete(channel, message_id: Optional[int]) -> None:
@@ -587,15 +644,15 @@ class Pickem(commands.Cog):
             return True
         weeks = await self.config.guild(guild).weeks()
         embed, won = self.results_embed(week, weeks)
+        embed.set_footer(text="Hit \"Where do I stand?\" to see how you did.")
+        content, mentions = self._ping(nfl.players(week))  # everyone who played
         try:
-            message = await channel.send(
-                " ".join(mention(u) for u in won), embed=embed,
-                allowed_mentions=discord.AllowedMentions(users=[discord.Object(int(u)) for u in won]),
-            )
+            message = await channel.send(content, embed=embed, view=Buttons(self, StatusButton),
+                                         allowed_mentions=mentions)
         except discord.HTTPException as e:
             log.warning("Couldn't post pick'em results in guild %s: %r", guild.id, e)
             return False  # try again next tick
-        await self._save(guild, key, posted=True, winners=won)
+        await self._save(guild, key, posted=True, winners=won, results_msg=message.id)
         # Keep the channel down to the essentials: the new results replace the old
         # ones, and this week's board and tiebreaker aren't needed any more.
         await self._delete(channel, conf.get("results_id"))
@@ -757,6 +814,97 @@ class Pickem(commands.Cog):
         await interaction.response.send_message(problem or f"Got it: {points} points. You can change it until kickoff.",
                                                 ephemeral=True)
 
+    # ------------------------------------------------------------ "Where do I stand?"
+
+    @staticmethod
+    def _ordinal(n: int) -> str:
+        suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    def _place(self, uid: str, rows: list) -> str:
+        """e.g. "3rd of 18" or "2nd of 18 (tied)", ranked by wins."""
+        wins = {r[0]: r[1][0] for r in rows}
+        rank = 1 + sum(1 for w in wins.values() if w > wins[uid])
+        tied = sum(1 for w in wins.values() if w == wins[uid]) > 1
+        return f"{self._ordinal(rank)} of {len(rows)}" + (" (tied)" if tied else "")
+
+    def status_text(self, week: dict, weeks: dict, uid: str, now: datetime) -> tuple[str, bool]:
+        """One player's private status for a week, and whether to offer the
+        tiebreaker guess button."""
+        lines, offer_guess = [], False
+        label = week["label"]
+        if uid not in nfl.players(week):
+            lines.append(f"You didn't make any picks for {label}.")
+        else:
+            table = nfl.standings(week)
+            rec = nfl.record(week, uid)
+            left = [(gid, g) for gid, g in nfl.ordered(week["games"]) if not nfl.is_done(g)]
+            if not left:
+                won, _, _ = nfl.winners(week)
+                lines.append(f"You finished {label} at **{nfl.record_text(rec)}**, {self._place(uid, table)}.")
+                if uid in won:
+                    lines.append("🏆 You won the week!" if len(won) == 1 else "🏆 You share the win this week!")
+            else:
+                n = len(left)
+                lines.append(f"You're **{nfl.record_text(rec)}** with {n} game{'s' if n != 1 else ''} left, "
+                             f"{self._place(uid, table)}.")
+                wins = {u: r[0] for u, r in table}
+                others_best = max((w + n for u, w in wins.items() if u != uid), default=-1)
+                leader = max(wins.values())
+                if wins[uid] > others_best:
+                    lines.append("You've clinched the week. Nobody can catch you.")
+                elif wins[uid] == others_best:
+                    lines.append("At worst you'll tie for first.")
+                elif wins[uid] + n >= leader:
+                    lines.append("You can still finish first.")
+                else:
+                    lines.append("First place is out of reach this week, but every win still counts for the season.")
+                tb = week.get("tb") or {}
+                if uid in tb.get("contenders", []) and len(tb.get("contenders", [])) >= 2:
+                    guess = (tb.get("guesses") or {}).get(uid)
+                    locked = any(nfl.is_locked(week["games"][gid], now) for gid in tb.get("games", []))
+                    if guess is not None:
+                        lines.append(f"Your tiebreaker guess: **{guess}** points.")
+                    elif not locked:
+                        lines.append("You haven't entered a tiebreaker guess yet.")
+                    offer_guess = not locked
+                picks = week["picks"].get(uid, {})
+                for gid, game in left:
+                    if gid in picks:
+                        lines.append(f"Your pick for {matchup(game)}: **{picks[gid]}**")
+                    elif not nfl.is_locked(game, now):
+                        lines.append(f"You haven't picked {matchup(game)} yet. It locks at {nfl.kickoff_text(game)}.")
+        season = nfl.season_standings(weeks, week["season"])
+        mine = next((r for r in season if r[0] == uid), None)
+        if mine:
+            rows = [(u, rec) for u, rec, _ in season]
+            lines.append(f"\nSeason: **{nfl.record_text(mine[1])}**, {self._place(uid, rows)}.")
+        return "\n".join(lines), offer_guess
+
+    async def show_status(self, interaction: discord.Interaction) -> None:
+        """The "Where do I stand?" button: works out which week from the message
+        it's on (board, Sunday check-in or results), then answers privately."""
+        guild = interaction.guild
+        if guild is None:
+            return
+        weeks = await self.config.guild(guild).weeks()
+        msg_id = interaction.message.id if interaction.message else None
+        key = next((k for k, w in weeks.items()
+                    if msg_id in (w.get("board_id"), w.get("results_msg"), (w.get("tb") or {}).get("message_id"))),
+                   self._current["key"] if self._current else None)
+        week = weeks.get(key)
+        if week is None:
+            await interaction.response.send_message(self.NOT_READY, ephemeral=True)
+            return
+        text, offer_guess = self.status_text(week, weeks, str(interaction.user.id), datetime.now(timezone.utc))
+        embed = discord.Embed(title=f"Your {week['label']} pick'em", description=text[:4096], color=COLOR)
+        if offer_guess:
+            view = discord.ui.View(timeout=15 * 60)
+            view.add_item(GuessButton(self, one_off=True))
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
     # ------------------------------------------------------------ member commands
 
     def _picks_text(self, week: dict, uid: str, show_all: bool, now: datetime) -> str:
@@ -810,7 +958,7 @@ class Pickem(commands.Cog):
             await ctx.send("Pick'em isn't running in this server.")
             return
         # Typed commands can't open private messages, so hand over the button.
-        await ctx.send("Your picks are private, so they open from this button.", view=PanelView(self, timeout=120),
+        await ctx.send("Your picks are private, so they open from this button.", view=Buttons(self, OpenButton, timeout=120),
                        delete_after=120)
 
     @pickem.command(name="picks")
