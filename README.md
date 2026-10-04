@@ -228,11 +228,11 @@ send their own invite (`modset reinvite`) and expired tempbans already got one, 
 those are skipped, told apart by the audit log. `!unbaninvite on|off` (admin, on by default);
 `!unbaninvite message [text|reset]` shows or changes the wording (`{server}`, `{invite}`, which is required).
 
-**Mute notice:** anyone who gets muted or timed out is DM'd "You've been muted in <server>
+**Mute notice:** anyone who gets muted or timed out is DM'd "You've been muted (or timed out) in <server>
 until <time>. Think this was a mistake? DM Refbot Modmail and the mods will take a look."
 Covers Red's mutes (server, channel, voice) and timeouts, Defender's automatic timeouts and
 Discord's own Timeout button; one notice per person per minute (Red's timeout fires twice).
-`!mutenotice on|off`, `!mutenotice message [text|reset]` (`{where}`, `{server}`, `{until}`),
+`!mutenotice on|off`, `!mutenotice message [text|reset]` (`{action}` = muted / timed out, `{where}`, `{server}`, `{until}`; `<@bot id>` makes a clickable mention),
 `!mutenotice test` DMs you a preview.
 
 **Report reaction (needs Defender):** react to a message with the report emoji

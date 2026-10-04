@@ -46,7 +46,7 @@ DELETE_CHOICES = [
 # Default wording for the DMs below. Admins can change them from Discord
 # (`unbaninvite message` / `mutenotice message`); these are used until they do.
 UNBAN_DEFAULT = "You've been unbanned from **{server}**. Here's an invite back: {invite}"
-MUTE_DEFAULT = ("You've been muted in {where} {until}. Think this was a mistake? "
+MUTE_DEFAULT = ("You've been {action} in {where} {until}. Think this was a mistake? "
                 "DM **Refbot Modmail** and the mods will take a look.")
 
 
@@ -791,7 +791,8 @@ class ModSlash(commands.Cog):
                        allowed_mentions=discord.AllowedMentions.none())
 
     async def _send_mute_notice(self, guild: discord.Guild, user: discord.abc.User,
-                                until: Optional[datetime], channel: Optional[discord.abc.GuildChannel] = None) -> None:
+                                until: Optional[datetime], channel: Optional[discord.abc.GuildChannel] = None,
+                                action: str = "muted") -> None:
         """DM someone who just got muted or timed out, once per minute at most (Red's
         timeout both starts a Discord timeout and logs a mute, so this can fire twice)."""
         if user.bot or not await self.config.guild(guild).mute_notice():
@@ -807,7 +808,7 @@ class ModSlash(commands.Cog):
         where = f"**{guild.name}**" if channel is None else f"#{channel.name} in **{guild.name}**"
         template = await self.config.guild(guild).mute_message() or MUTE_DEFAULT
         try:
-            await user.send(fill(template, server=guild.name, where=where, until=until_text(until)))
+            await user.send(fill(template, action=action, server=guild.name, where=where, until=until_text(until)))
         except discord.HTTPException:
             log.info("Couldn't DM a mute notice to %s (guild %s)", user.id, guild.id)
 
@@ -819,7 +820,7 @@ class ModSlash(commands.Cog):
         started = after.timed_out_until and after.timed_out_until > now
         was = before.timed_out_until and before.timed_out_until > now
         if started and not was:
-            await self._send_mute_notice(after.guild, after, after.timed_out_until)
+            await self._send_mute_notice(after.guild, after, after.timed_out_until, action="timed out")
 
     @commands.Cog.listener()
     async def on_modlog_case_create(self, case):
@@ -851,17 +852,19 @@ class ModSlash(commands.Cog):
 
     @mutenotice.command(name="message")
     async def mutenotice_message(self, ctx: commands.Context, *, text: Optional[str] = None):
-        """Show or change the mute DM. Use {where} (or {server}) and {until}; `reset` for the default."""
+        """Show or change the mute DM. Use {action} ("muted" / "timed out"), {where} (or {server})
+        and {until}; `reset` for the default."""
         later = datetime.now(timezone.utc) + timedelta(hours=1)
         await self._edit_template(ctx, "mute_message", MUTE_DEFAULT, text, required=[],
-                                  example=dict(server=ctx.guild.name, where=f"**{ctx.guild.name}**",
+                                  example=dict(action="timed out", server=ctx.guild.name, where=f"**{ctx.guild.name}**",
                                                until=until_text(later)))
 
     @mutenotice.command(name="test")
     async def mutenotice_test(self, ctx: commands.Context):
         """DM yourself the mute notice as it is now (nobody gets muted)."""
         self._mute_notified.pop((ctx.guild.id, ctx.author.id), None)
-        await self._send_mute_notice(ctx.guild, ctx.author, datetime.now(timezone.utc) + timedelta(hours=1))
+        await self._send_mute_notice(ctx.guild, ctx.author, datetime.now(timezone.utc) + timedelta(hours=1),
+                                     action="timed out")
         await ctx.send("Sent you a DM (if your DMs are open).")
 
     @commands.group(name="reportset")
