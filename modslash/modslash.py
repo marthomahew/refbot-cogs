@@ -49,7 +49,7 @@ DELETE_CHOICES = [
 # (`unbaninvite message` / `mutenotice message`); these are used until they do.
 UNBAN_DEFAULT = "You've been unbanned from **{server}**. Here's an invite back: {invite}"
 MUTE_DEFAULT = ("You've been {action} in {where} {until}. Think this was a mistake? "
-                "DM **Refbot Modmail** and the mods will take a look.")
+                "DM **Modmail** and the mods will take a look.")
 
 
 class _Blanks(dict):

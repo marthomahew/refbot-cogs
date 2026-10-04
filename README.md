@@ -237,7 +237,7 @@ It runs Red's own unmute, so mute roles, timeouts, channel permissions and Red's
 all undone, and logs an unmute case like `/unmute`. Needs a modlog channel (`!modlogset modlog`).
 
 **Mute notice:** anyone who gets muted or timed out is DM'd "You've been muted (or timed out) in <server>
-until <time>. Think this was a mistake? DM Refbot Modmail and the mods will take a look."
+until <time>. Think this was a mistake? DM Modmail and the mods will take a look."
 Covers Red's mutes (server, channel, voice) and timeouts, Defender's automatic timeouts and
 Discord's own Timeout button; one notice per person per minute (Red's timeout fires twice).
 `!mutenotice on|off`, `!mutenotice message [text|reset]` (`{action}` = muted / timed out, `{where}`, `{server}`, `{until}`; `<@bot id>` makes a clickable mention),
