@@ -201,10 +201,10 @@ work exactly like the `!` versions.
 
 | Slash command | Same as |
 | --- | --- |
-| `/ban user [days] [reason]` | `!ban` (works for people not in the server) |
+| `/ban user [reason] [delete_messages]` | `!ban`, permanent (works for people not in the server). `delete_messages` is a menu: don't delete (default), last 24 hours, 3 days or 7 days |
 | `/kick member [reason]` | `!kick` |
-| `/tempban member [duration] [days] [reason]` | `!tempban` |
-| `/softban member [reason]` | `!softban` |
+| `/tempban member [duration] [reason] [delete_messages]` | `!tempban`, ban for a set time (e.g. `1d`, `1w`) |
+| `/softban member [reason]` | `!softban`: kick + delete their last day of messages |
 | `/unban user_id [reason]` | `!unban` |
 | `/warn member reason [points]` | `!warn` |
 | `/warnings member` | `!warnings` |

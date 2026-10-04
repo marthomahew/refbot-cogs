@@ -32,6 +32,16 @@ from redbot.core.utils.chat_formatting import pagify
 log = logging.getLogger("red.refbot.modslash")
 
 
+# The "delete their messages" option on /ban and /tempban. A labelled menu, because
+# a bare "days" number was easy to mistake for the ban's length.
+DELETE_CHOICES = [
+    app_commands.Choice(name="Don't delete anything", value=0),
+    app_commands.Choice(name="Last 24 hours", value=1),
+    app_commands.Choice(name="Last 3 days", value=3),
+    app_commands.Choice(name="Last 7 days", value=7),
+]
+
+
 def to_timedelta(text: Optional[str], maximum: Optional[timedelta] = None) -> Optional[timedelta]:
     """"10m", "2h", "1d12h" -> timedelta. A bare number means seconds. None if blank.
     Raises BadArgument if it can't be read."""
@@ -187,19 +197,25 @@ class ModSlash(commands.Cog):
 
     # ------------------------------------------------------------ Mod cog
 
-    @app_commands.command(name="ban", description="Ban a user (works for people not in the server too)")
-    @app_commands.describe(user="Who to ban", days="Delete their messages from the last N days (0-7)", reason="Why")
+    @app_commands.command(name="ban", description="Ban a user permanently (use /tempban for a set time)")
+    @app_commands.describe(
+        user="Who to ban (works for people not in the server too)",
+        reason="Why (shown to them in the ban DM)",
+        delete_messages="Also delete their recent messages? (default: keep them)",
+    )
+    @app_commands.choices(delete_messages=DELETE_CHOICES)
     @app_commands.guild_only()
     @app_commands.default_permissions(ban_members=True)
     async def ban(
         self,
         interaction: discord.Interaction,
         user: discord.User,
-        days: Optional[app_commands.Range[int, 0, 7]] = None,
         reason: Optional[str] = None,
+        delete_messages: Optional[app_commands.Choice[int]] = None,
     ):
         # Red's ban takes a member, or a plain user ID for people not in the server.
         target = user if isinstance(user, discord.Member) else user.id
+        days = delete_messages.value if delete_messages else None
         await self._run(interaction, "ban", target, days, reason=reason)
 
     @app_commands.command(name="kick", description="Kick a member")
@@ -212,10 +228,11 @@ class ModSlash(commands.Cog):
     @app_commands.command(name="tempban", description="Ban a member for a while")
     @app_commands.describe(
         member="Who to ban",
-        duration="How long, e.g. 1d, 12h, 1w (default: Red's tempban setting)",
-        days="Delete their messages from the last N days (0-7)",
-        reason="Why",
+        duration="How long the ban lasts, e.g. 1d, 12h, 1w (default: Red's tempban setting)",
+        reason="Why (shown to them in the ban DM)",
+        delete_messages="Also delete their recent messages? (default: keep them)",
     )
+    @app_commands.choices(delete_messages=DELETE_CHOICES)
     @app_commands.guild_only()
     @app_commands.default_permissions(ban_members=True)
     async def tempban(
@@ -223,9 +240,10 @@ class ModSlash(commands.Cog):
         interaction: discord.Interaction,
         member: discord.Member,
         duration: Optional[str] = None,
-        days: Optional[app_commands.Range[int, 0, 7]] = None,
         reason: Optional[str] = None,
+        delete_messages: Optional[app_commands.Choice[int]] = None,
     ):
+        days = delete_messages.value if delete_messages else None
         try:
             length = to_timedelta(duration)
         except commands.BadArgument as e:
@@ -233,7 +251,7 @@ class ModSlash(commands.Cog):
             return
         await self._run(interaction, "tempban", member, length, days, reason=reason)
 
-    @app_commands.command(name="softban", description="Ban and immediately unban, to clear someone's recent messages")
+    @app_commands.command(name="softban", description="Kick someone AND delete their last day of messages (ban + instant unban)")
     @app_commands.describe(member="Who to softban", reason="Why")
     @app_commands.guild_only()
     @app_commands.default_permissions(ban_members=True)
