@@ -220,6 +220,13 @@ work exactly like the `!` versions.
 | Right-click a message → Apps → **Alert staff** | Same as `/alert`, but the staff ping links to that exact message. Enable with `!slash enable "Alert staff" message` |
 | `/purge amount [user]` | deletes the last N messages (optionally one person's) |
 
+**Invite back on unban:** when someone is unbanned some other way than Red's own
+`unban` (an approved ban appeal, or a mod using Discord's Unban button), Refbot DMs
+them "You've been unbanned from <server>. Here's an invite back: <link>" (the server's
+permanent invite if it has one, else a new one-day invite). Red's `unban`/softban
+send their own invite (`modset reinvite`) and expired tempbans already got one, so
+those are skipped, told apart by the audit log. `!unbaninvite on|off` (admin, on by default).
+
 **Report reaction (needs Defender):** react to a message with the report emoji
 (set with `!reportset emoji 🛎️`, a standard or custom server emoji, then
 `!reportset toggle`). The bot removes the reaction at once. By default only

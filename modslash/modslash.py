@@ -17,9 +17,10 @@ Settings → Integrations → the bot.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from copy import copy
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Optional
 
 import discord
@@ -79,6 +80,9 @@ class ModSlash(commands.Cog):
             # Auto-hide: remove a message once this many different members report it,
             # but ONLY if its author is a new account (Defender Rank 3-4). 0 = off.
             auto_hide_threshold=3,
+            # DM people an invite back when they're unbanned (e.g. an approved ban
+            # appeal), except where Red already sends its own (see on_member_unban).
+            unban_invite=True,
         )
         self._review_notes: dict[int, discord.Message] = {}  # reported message id -> our public note
         self._reporters: dict[int, set[int]] = {}  # reported message id -> ids of members who reported it
@@ -639,6 +643,89 @@ class ModSlash(commands.Cog):
             heat_key=f"modslash-report-{message.id}",
             no_repeat_for=timedelta(hours=6),
         )
+
+    # ------------------------------------------------------------ invite back on unban
+
+    # Red's own unbans (`unban`, softban) are labelled like this in the audit log,
+    # and Red sends those people an invite itself (Mod's "reinvite on unban").
+    RED_REASON_PREFIX = "Action requested by "
+    # Tempbans that run out: the invite was already in the tempban DM.
+    RED_TEMPBAN_REASON = "Tempban finished"
+
+    @commands.Cog.listener()
+    async def on_member_unban(self, guild: discord.Guild, user: discord.User):
+        """DM an invite back to anyone unbanned some other way: an approved ban
+        appeal (the Appeals cog unbans directly, so Red's reinvite never runs) or a
+        mod using Discord's own Unban button."""
+        if user.bot or not await self.config.guild(guild).unban_invite():
+            return
+        if await self.bot.cog_disabled_in_guild(self, guild):
+            return
+        reason = await self._unban_reason(guild, user)
+        if reason and (reason.startswith(self.RED_REASON_PREFIX) or reason == self.RED_TEMPBAN_REASON):
+            return  # Red handles these
+        invite = await self._invite_for(guild)
+        if not invite:
+            log.warning("Couldn't make an invite to send %s after their unban (guild %s)", user.id, guild.id)
+            return
+        try:
+            await user.send(f"You've been unbanned from **{guild.name}**. Here's an invite back: {invite}")
+        except discord.HTTPException:
+            # Usually: DMs closed, or we no longer share a server with them.
+            log.info("Couldn't DM an invite to %s after their unban (guild %s)", user.id, guild.id)
+
+    @staticmethod
+    async def _unban_reason(guild: discord.Guild, user: discord.User) -> Optional[str]:
+        """The audit log reason for this unban, or None if we can't tell."""
+        if not guild.me.guild_permissions.view_audit_log:
+            return None
+        await asyncio.sleep(2)  # the audit log entry can lag a moment behind the event
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
+        try:
+            async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.unban):
+                if entry.target and entry.target.id == user.id and entry.created_at >= cutoff:
+                    return entry.reason or ""
+        except discord.HTTPException:
+            pass
+        return None
+
+    @staticmethod
+    async def _invite_for(guild: discord.Guild) -> Optional[str]:
+        """A permanent invite if the server has one (or its vanity URL), else a new
+        one-day invite. Same approach as Red's own reinvite."""
+        me = guild.me.guild_permissions
+        if me.manage_guild or me.administrator:
+            if guild.vanity_url:
+                return guild.vanity_url
+            try:
+                for inv in await guild.invites():
+                    if not (inv.max_uses or inv.max_age or inv.temporary):
+                        return inv.url
+            except discord.HTTPException:
+                pass
+        for channel in [guild.rules_channel, guild.system_channel, *guild.text_channels]:
+            if channel and channel.permissions_for(guild.me).create_instant_invite:
+                try:
+                    return (await channel.create_invite(max_age=86400, reason="Invite back after unban")).url
+                except discord.HTTPException:
+                    continue
+        return None
+
+    @commands.command(name="unbaninvite")
+    @commands.guild_only()
+    @commands.admin_or_permissions(manage_guild=True)
+    async def unbaninvite(self, ctx: commands.Context, on_or_off: Optional[bool] = None):
+        """DM people an invite back when they're unbanned (on by default).
+
+        Covers approved ban appeals and Discord's own Unban button. Red's `unban`
+        and softban send their own invite (`modset reinvite`), so they're skipped.
+        """
+        conf = self.config.guild(ctx.guild)
+        if on_or_off is None:
+            on_or_off = not await conf.unban_invite()
+        await conf.unban_invite.set(on_or_off)
+        await ctx.send("Unbanned people will get a DM with an invite back." if on_or_off
+                       else "No more invite DMs on unban (Red's own `unban` still follows `modset reinvite`).")
 
     @commands.group(name="reportset")
     @commands.guild_only()
