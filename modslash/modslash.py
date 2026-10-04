@@ -19,16 +19,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from copy import copy
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Optional
 
 import discord
 from discord import app_commands
-from redbot.core import Config, commands
+from redbot.core import Config, commands, modlog
 from redbot.core.bot import Red
 from redbot.core.commands.converter import parse_timedelta
 from redbot.core.utils.chat_formatting import pagify
+from redbot.core.utils.mod import get_audit_reason
 
 log = logging.getLogger("red.refbot.modslash")
 
@@ -83,7 +85,8 @@ def to_timedelta(text: Optional[str], maximum: Optional[timedelta] = None) -> Op
     return duration
 
 
-END_TIMEOUT_ID = "refbot_modslash:end_timeout"  # fixed id so old log posts keep working
+END_TIMEOUT_ID = "refbot_modslash:end_timeout"  # fixed ids so old log posts keep working
+UNMUTE_ID = "refbot_modslash:unmute"
 
 
 class EndTimeoutButton(discord.ui.Button):
@@ -98,6 +101,18 @@ class EndTimeoutButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await self.cog.end_timeout(interaction)
+
+
+class UnmuteButton(discord.ui.Button):
+    """The "Unmute" button added to Red's modlog posts for server and channel mutes."""
+
+    def __init__(self, cog: "ModSlash", label: str = "Unmute", disabled: bool = False):
+        kwargs = {} if disabled else {"custom_id": UNMUTE_ID}  # see EndTimeoutButton
+        super().__init__(label=label, emoji="🔊", style=discord.ButtonStyle.secondary, disabled=disabled, **kwargs)
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.cog.unmute_from_case(interaction)
 
 
 def one_button(button: discord.ui.Button) -> discord.ui.View:
@@ -143,14 +158,16 @@ class ModSlash(commands.Cog):
 
     async def cog_load(self) -> None:
         self.bot.tree.add_command(self.alert_menu)
-        # Answers "End timeout" buttons, including ones posted before a restart.
-        # Never sent itself; every post gets its own copy.
-        self._end_timeout_view = one_button(EndTimeoutButton(self))
-        self.bot.add_view(self._end_timeout_view)
+        # Answers the "End timeout" / "Unmute" buttons on log posts, including ones
+        # posted before a restart. Never sent itself; every post gets its own copy.
+        self._log_buttons_view = discord.ui.View(timeout=None)
+        self._log_buttons_view.add_item(EndTimeoutButton(self))
+        self._log_buttons_view.add_item(UnmuteButton(self))
+        self.bot.add_view(self._log_buttons_view)
 
     async def cog_unload(self) -> None:
         self.bot.tree.remove_command(self.alert_menu.name, type=self.alert_menu.type)
-        self._end_timeout_view.stop()
+        self._log_buttons_view.stop()
 
     async def red_delete_data_for_user(self, *, requester, user_id: int) -> None:
         # The only user data here is the report block list (member IDs).
@@ -849,6 +866,73 @@ class ModSlash(commands.Cog):
         # Swap the button for a greyed-out note of who ended it.
         await interaction.response.edit_message(view=one_button(EndTimeoutButton(self, label=label, disabled=True)))
 
+    async def _add_unmute_button(self, case) -> None:
+        """Red posts the case to the modlog channel right after announcing it; wait
+        for that post (up to ~10 s), then add the Unmute button to it."""
+        for _ in range(10):
+            await asyncio.sleep(1)
+            if case.message is not None:
+                break
+        else:
+            return  # no modlog channel set, or Red couldn't post
+        try:
+            await case.message.edit(view=one_button(UnmuteButton(self)))
+        except discord.HTTPException as e:
+            log.info("Couldn't add the Unmute button to case %s: %r", case.case_number, e)
+
+    async def unmute_from_case(self, interaction: discord.Interaction) -> None:
+        """Undo the mute in this modlog case using Red's own unmute (so roles,
+        timeouts, channel permissions and Red's records are all handled), and log
+        an unmute case like `unmute` does."""
+        guild, mod = interaction.guild, interaction.user
+        if guild is None:
+            return
+        if not await self.bot.is_mod(mod) and not mod.guild_permissions.administrator:
+            await interaction.response.send_message("Only mods can unmute.", ephemeral=True)
+            return
+        mutes = self.bot.get_cog("Mutes")
+        message = interaction.message
+        text = (message.embeds[0].title or "") if message.embeds else (message.content or "")
+        number = re.search(r"Case #(\d+)", text)
+        if mutes is None or number is None:
+            await interaction.response.send_message("I can't find that mute (is the Mutes cog loaded?).", ephemeral=True)
+            return
+        try:
+            case = await modlog.get_case(int(number.group(1)), guild, self.bot)
+        except RuntimeError:
+            await interaction.response.send_message("That case no longer exists.", ephemeral=True)
+            return
+        user_id = case.user if isinstance(case.user, int) else case.user.id
+        member = guild.get_member(user_id)
+        if member is None:
+            await interaction.response.send_message("They're not in the server any more.", ephemeral=True)
+            return
+        # Defer as an update of the log post itself, so editing the "original
+        # response" below changes the post's button. Messages to the mod go out as
+        # private follow-ups.
+        await interaction.response.defer()
+        reason = get_audit_reason(mod, "Unmuted from the modlog", shorten=True)
+        channel = None
+        if case.action_type == "cmute":
+            channel_id = case.channel if isinstance(case.channel, int) else getattr(case.channel, "id", None)
+            channel = guild.get_channel_or_thread(channel_id) if channel_id else None
+            if channel is None:
+                await interaction.followup.send("That channel is gone.", ephemeral=True)
+                return
+            result = await mutes.channel_unmute_user(guild, channel, mod, member, reason)
+        else:
+            result = await mutes.unmute_user(guild, mod, member, reason)
+        if not result.success:
+            await interaction.followup.send(result.reason or "Couldn't unmute them.", ephemeral=True)
+            return
+        await modlog.create_case(self.bot, guild, interaction.created_at,
+                                 "cunmute" if channel else "sunmute", member, mod,
+                                 "Unmuted from the modlog", until=None, channel=channel)
+        await interaction.edit_original_response(
+            view=one_button(UnmuteButton(self, label=f"Unmuted by {mod.display_name}"[:80], disabled=True)))
+        await interaction.followup.send(f"Unmuted {member.mention}.", ephemeral=True,
+                                        allowed_mentions=discord.AllowedMentions.none())
+
     # ------------------------------------------------------------ mute notice
 
     async def _edit_template(self, ctx, key: str, default: str, text: Optional[str],
@@ -910,6 +994,8 @@ class ModSlash(commands.Cog):
         """Red's mutes (server, channel and voice) log a case; that's our cue."""
         if case.action_type not in ("smute", "cmute", "vmute") or case.guild is None:
             return
+        if case.action_type in ("smute", "cmute"):
+            asyncio.create_task(self._add_unmute_button(case))
         user = case.user if isinstance(case.user, discord.abc.User) else self.bot.get_user(case.user)
         if user is None:
             return

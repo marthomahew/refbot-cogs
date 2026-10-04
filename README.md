@@ -231,6 +231,10 @@ those are skipped, told apart by the audit log. `!unbaninvite on|off` (admin, on
 **End timeout button:** ExtendedModLog's "member updated" posts for a timeout starting get
 an **End timeout** button (mods only, or anyone with Timeout Members). It lifts the timeout
 and turns into a greyed-out "Timeout ended by <mod>". Works on posts from before a restart.
+**Unmute button:** Red's modlog posts for server and channel mutes (`/mute`, `/mutechannel`,
+and Red's `/timeout`, which Red logs as a server mute) get an **Unmute** button (mods only).
+It runs Red's own unmute, so mute roles, timeouts, channel permissions and Red's records are
+all undone, and logs an unmute case like `/unmute`. Needs a modlog channel (`!modlogset modlog`).
 
 **Mute notice:** anyone who gets muted or timed out is DM'd "You've been muted (or timed out) in <server>
 until <time>. Think this was a mistake? DM Refbot Modmail and the mods will take a look."
