@@ -132,7 +132,7 @@ During Emergency Mode you can use:
 Slash versions of the mod commands. Replies are only visible to you, and they're logged the same as the `!` versions:
 `/kick` `/ban` `/unban` `/timeout` `/mute` `/unmute` `/mutechannel` `/unmutechannel` `/slowmode`
 
-Ban appeals: approve or deny in the appeal server with `!appeal approve <id>` / `!appeal deny <id> <reason>`. Approved people get unbanned and a DM with an invite back.
+Ban appeals: hit **Approve** or **Deny** on the appeal in the appeal server (or use `!appeal approve <id>` / `!appeal deny <id> <reason>`). Approved people get unbanned and a DM with an invite back.
 Timeout posts in the log channel have an **End timeout** button, and mute cases in the modlog have an **Unmute** button. Muted or timed out members get a DM pointing them to Modmail. Edit it with `!mutenotice message`, preview with `!mutenotice test`.
 Reports: `!reportset show`, `!reportset who coaches|members`, `!reportset block @user` for repeat false reporters, `!reportset autohide <n>`
 Awards: `!awards list`, `!awards preview`, `!awards priority`

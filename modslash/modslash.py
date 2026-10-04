@@ -87,6 +87,8 @@ def to_timedelta(text: Optional[str], maximum: Optional[timedelta] = None) -> Op
 
 END_TIMEOUT_ID = "refbot_modslash:end_timeout"  # fixed ids so old log posts keep working
 UNMUTE_ID = "refbot_modslash:unmute"
+APPROVE_ID = "refbot_appeal:approve"
+DENY_ID = "refbot_appeal:deny"
 
 
 class EndTimeoutButton(discord.ui.Button):
@@ -113,6 +115,43 @@ class UnmuteButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await self.cog.unmute_from_case(interaction)
+
+
+class AppealButton(discord.ui.Button):
+    """Approve / Deny on the Appeals cog's pending posts. Each opens a short form,
+    then runs the Appeals cog's own `appeal approve` / `appeal deny` command."""
+
+    def __init__(self, cog: "ModSlash", approve: bool):
+        super().__init__(
+            label="Approve" if approve else "Deny",
+            emoji="✅" if approve else "❌",
+            style=discord.ButtonStyle.success if approve else discord.ButtonStyle.danger,
+            custom_id=APPROVE_ID if approve else DENY_ID,
+        )
+        self.cog, self.approve = cog, approve
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.cog.appeal_button(interaction, self.approve)
+
+
+class AppealForm(discord.ui.Modal):
+    reason = discord.ui.TextInput(label="Reason", style=discord.TextStyle.paragraph, required=False, max_length=900)
+    wait = discord.ui.TextInput(label="Wait before they can appeal again (optional)", placeholder="e.g. 30d, 6mo, 1y",
+                                required=False, max_length=10)
+
+    def __init__(self, cog: "ModSlash", submission_id: int, approve: bool):
+        super().__init__(title=f"{'Approve' if approve else 'Deny'} appeal #{submission_id}")
+        self.cog, self.submission_id, self.approve = cog, submission_id, approve
+        if approve:
+            self.reason.label = "Reason (optional, shown on the post)"
+            self.remove_item(self.wait)  # only denials have a re-appeal wait
+        else:
+            self.reason.label = "Reason (they'll see this in their DM)"
+
+    async def on_submit(self, interaction: discord.Interaction):
+        words = [self.wait.value.strip()] if not self.approve and self.wait.value.strip() else []
+        words += [self.reason.value.strip()] if self.reason.value.strip() else []
+        await self.cog.run_appeal_command(interaction, self.submission_id, self.approve, " ".join(words))
 
 
 def one_button(button: discord.ui.Button) -> discord.ui.View:
@@ -163,6 +202,8 @@ class ModSlash(commands.Cog):
         self._log_buttons_view = discord.ui.View(timeout=None)
         self._log_buttons_view.add_item(EndTimeoutButton(self))
         self._log_buttons_view.add_item(UnmuteButton(self))
+        self._log_buttons_view.add_item(AppealButton(self, approve=True))
+        self._log_buttons_view.add_item(AppealButton(self, approve=False))
         self.bot.add_view(self._log_buttons_view)
 
     async def cog_unload(self) -> None:
@@ -832,6 +873,9 @@ class ModSlash(commands.Cog):
         """Add an "End timeout" button to ExtendedModLog's timeout posts."""
         if message.guild is None or message.author.id != self.bot.user.id:
             return
+        if self._pending_appeal_id(message) is not None:
+            await self._add_appeal_buttons(message)
+            return
         if self._timed_out_member_id(message) is None:
             return
         if await self.bot.cog_disabled_in_guild(self, message.guild):
@@ -932,6 +976,64 @@ class ModSlash(commands.Cog):
             view=one_button(UnmuteButton(self, label=f"Unmuted by {mod.display_name}"[:80], disabled=True)))
         await interaction.followup.send(f"Unmuted {member.mention}.", ephemeral=True,
                                         allowed_mentions=discord.AllowedMentions.none())
+
+    # ------------------------------------------------------------ appeal buttons
+
+    @staticmethod
+    def _pending_appeal_id(message: discord.Message) -> Optional[int]:
+        """The submission ID if this is the Appeals cog's pending post (embed author
+        "Pending Submission", footer "Submission ID: N")."""
+        if not message.embeds:
+            return None
+        embed = message.embeds[0]
+        if (embed.author.name or "") != "Pending Submission":
+            return None
+        found = re.search(r"Submission ID: (\d+)", embed.footer.text or "")
+        return int(found.group(1)) if found else None
+
+    async def _add_appeal_buttons(self, message: discord.Message) -> None:
+        view = discord.ui.View(timeout=None)
+        view.add_item(AppealButton(self, approve=True))
+        view.add_item(AppealButton(self, approve=False))
+        try:
+            await message.edit(view=view)
+        except discord.HTTPException as e:
+            log.info("Couldn't add appeal buttons: %r", e)
+
+    async def appeal_button(self, interaction: discord.Interaction, approve: bool) -> None:
+        submission_id = self._pending_appeal_id(interaction.message)
+        member = interaction.user
+        if submission_id is None or interaction.guild is None:
+            return
+        # Same rule as the Appeals cog's own commands: Red admins or Administrator.
+        if not (await self.bot.is_admin(member) or member.guild_permissions.administrator):
+            await interaction.response.send_message("Only admins in this server can decide appeals.", ephemeral=True)
+            return
+        if self.bot.get_cog("Appeals") is None:
+            await interaction.response.send_message("The Appeals cog isn't loaded.", ephemeral=True)
+            return
+        await interaction.response.send_modal(AppealForm(self, submission_id, approve))
+
+    async def run_appeal_command(self, interaction: discord.Interaction, submission_id: int,
+                                 approve: bool, reason: str) -> None:
+        """Run `appeal approve|deny <id> [reason]` as the mod who clicked, through
+        Red's normal command handling (so Appeals' own checks and replies apply).
+        Its replies go to this (staff-only) channel, as if the mod had typed it."""
+        guild = interaction.guild
+        prefixes = [p for p in await self.bot.get_valid_prefixes(guild) if not p.startswith("<@")]
+        command = f"{prefixes[0] if prefixes else '!'}appeal {'approve' if approve else 'deny'} {submission_id}"
+        if reason:
+            command += f" {reason}"
+        await interaction.response.send_message(
+            f"{'Approving' if approve else 'Denying'} appeal #{submission_id}...", ephemeral=True)
+        message = copy(interaction.message)
+        message.author = interaction.user
+        message.content = command
+        ctx = await self.bot.get_context(message)
+        if not ctx.valid:
+            await interaction.followup.send("Couldn't find the appeal command.", ephemeral=True)
+            return
+        await self.bot.invoke(ctx)
 
     # ------------------------------------------------------------ mute notice
 

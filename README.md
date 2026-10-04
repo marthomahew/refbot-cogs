@@ -236,6 +236,13 @@ and Red's `/timeout`, which Red logs as a server mute) get an **Unmute** button 
 It runs Red's own unmute, so mute roles, timeouts, channel permissions and Red's records are
 all undone, and logs an unmute case like `/unmute`. Needs a modlog channel (`!modlogset modlog`).
 
+**Appeal buttons (needs Vertyco's Appeals cog):** the Appeals cog's pending posts get
+**Approve** / **Deny** buttons. Each opens a short form (reason; for denials also an optional
+wait before they can appeal again, e.g. `30d`, `6mo`) and then runs the real
+`!appeal approve|deny <id> [reason]` as the admin who clicked, so Appeals' own permission
+checks, unban, DMs and replies all apply. Only Red admins / Administrator in the appeal
+server can use them, same as the commands.
+
 **Mute notice:** anyone who gets muted or timed out is DM'd "You've been muted (or timed out) in <server>
 until <time>. Think this was a mistake? DM Modmail and the mods will take a look."
 Covers Red's mutes (server, channel, voice) and timeouts, Defender's automatic timeouts and
