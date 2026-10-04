@@ -83,6 +83,29 @@ def to_timedelta(text: Optional[str], maximum: Optional[timedelta] = None) -> Op
     return duration
 
 
+END_TIMEOUT_ID = "refbot_modslash:end_timeout"  # fixed id so old log posts keep working
+
+
+class EndTimeoutButton(discord.ui.Button):
+    """The "End timeout" button added to ExtendedModLog's timeout posts."""
+
+    def __init__(self, cog: "ModSlash", label: str = "End timeout", disabled: bool = False):
+        # A finished button gets no id: it can't be clicked, and a fixed id on it
+        # could only cause trouble (see pickem's GuessButton).
+        kwargs = {} if disabled else {"custom_id": END_TIMEOUT_ID}
+        super().__init__(label=label, emoji="⏹️", style=discord.ButtonStyle.secondary, disabled=disabled, **kwargs)
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.cog.end_timeout(interaction)
+
+
+def one_button(button: discord.ui.Button) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(button)
+    return view
+
+
 class ModSlash(commands.Cog):
     """Slash versions of Red's ban, kick, warn, mute and more."""
 
@@ -120,9 +143,14 @@ class ModSlash(commands.Cog):
 
     async def cog_load(self) -> None:
         self.bot.tree.add_command(self.alert_menu)
+        # Answers "End timeout" buttons, including ones posted before a restart.
+        # Never sent itself; every post gets its own copy.
+        self._end_timeout_view = one_button(EndTimeoutButton(self))
+        self.bot.add_view(self._end_timeout_view)
 
     async def cog_unload(self) -> None:
         self.bot.tree.remove_command(self.alert_menu.name, type=self.alert_menu.type)
+        self._end_timeout_view.stop()
 
     async def red_delete_data_for_user(self, *, requester, user_id: int) -> None:
         # The only user data here is the report block list (member IDs).
@@ -765,6 +793,61 @@ class ModSlash(commands.Cog):
         """Show or change the unban DM. Use {server} and {invite}; `reset` for the default."""
         await self._edit_template(ctx, "unban_message", UNBAN_DEFAULT, text, required=["{invite}"],
                                   example=dict(server=ctx.guild.name, invite="https://discord.gg/example"))
+
+    # ------------------------------------------------------------ "End timeout" on log posts
+
+    @staticmethod
+    def _timed_out_member_id(message: discord.Message) -> Optional[int]:
+        """If this is ExtendedModLog's "member updated" post for a timeout starting,
+        the member's ID. (Its embed has an "After" field with "Timeout until: <time>"
+        and a "Member ID" field.)"""
+        if not message.embeds:
+            return None
+        fields = {f.name: f.value or "" for f in message.embeds[0].fields}
+        after, member_id = fields.get("After", ""), fields.get("Member ID", "")
+        if "Timeout until" not in after or "Timeout until: None" in after:
+            return None
+        digits = "".join(ch for ch in member_id if ch.isdigit())
+        return int(digits) if digits else None
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Add an "End timeout" button to ExtendedModLog's timeout posts."""
+        if message.guild is None or message.author.id != self.bot.user.id:
+            return
+        if self._timed_out_member_id(message) is None:
+            return
+        if await self.bot.cog_disabled_in_guild(self, message.guild):
+            return
+        try:
+            await message.edit(view=one_button(EndTimeoutButton(self)))
+        except discord.HTTPException as e:
+            log.info("Couldn't add the End timeout button: %r", e)
+
+    async def end_timeout(self, interaction: discord.Interaction) -> None:
+        guild, mod = interaction.guild, interaction.user
+        if guild is None:
+            return
+        if not (mod.guild_permissions.moderate_members or await self.bot.is_mod(mod)):
+            await interaction.response.send_message("Only mods can end timeouts.", ephemeral=True)
+            return
+        member_id = self._timed_out_member_id(interaction.message)
+        member = guild.get_member(member_id) if member_id else None
+        if member is None:
+            await interaction.response.send_message("They're not in the server any more.", ephemeral=True)
+            return
+        if not member.is_timed_out():
+            label = "Timeout already over"
+        else:
+            try:
+                await member.edit(timed_out_until=None, reason=f"Timeout ended by {mod} ({mod.id}) from the log")
+            except discord.HTTPException:
+                await interaction.response.send_message(
+                    "I couldn't end it. I need Timeout Members and my role above theirs.", ephemeral=True)
+                return
+            label = f"Timeout ended by {mod.display_name}"[:80]
+        # Swap the button for a greyed-out note of who ended it.
+        await interaction.response.edit_message(view=one_button(EndTimeoutButton(self, label=label, disabled=True)))
 
     # ------------------------------------------------------------ mute notice
 

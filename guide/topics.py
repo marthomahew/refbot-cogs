@@ -133,7 +133,7 @@ Slash versions of the mod commands. Replies are only visible to you, and they're
 `/kick` `/ban` `/unban` `/timeout` `/mute` `/unmute` `/mutechannel` `/unmutechannel` `/slowmode`
 
 Ban appeals: approve or deny in the appeal server with `!appeal approve <id>` / `!appeal deny <id> <reason>`. Approved people get unbanned and a DM with an invite back.
-Muted or timed out members get a DM pointing them to Modmail. Edit it with `!mutenotice message`, preview with `!mutenotice test`.
+Timeout posts in the log channel have an **End timeout** button. Muted or timed out members get a DM pointing them to Modmail. Edit it with `!mutenotice message`, preview with `!mutenotice test`.
 Reports: `!reportset show`, `!reportset who coaches|members`, `!reportset block @user` for repeat false reporters, `!reportset autohide <n>`
 Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`

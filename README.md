@@ -228,6 +228,10 @@ send their own invite (`modset reinvite`) and expired tempbans already got one, 
 those are skipped, told apart by the audit log. `!unbaninvite on|off` (admin, on by default);
 `!unbaninvite message [text|reset]` shows or changes the wording (`{server}`, `{invite}`, which is required).
 
+**End timeout button:** ExtendedModLog's "member updated" posts for a timeout starting get
+an **End timeout** button (mods only, or anyone with Timeout Members). It lifts the timeout
+and turns into a greyed-out "Timeout ended by <mod>". Works on posts from before a restart.
+
 **Mute notice:** anyone who gets muted or timed out is DM'd "You've been muted (or timed out) in <server>
 until <time>. Think this was a mistake? DM Refbot Modmail and the mods will take a look."
 Covers Red's mutes (server, channel, voice) and timeouts, Defender's automatic timeouts and
