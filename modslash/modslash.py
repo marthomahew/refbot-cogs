@@ -43,6 +43,32 @@ DELETE_CHOICES = [
 ]
 
 
+# Default wording for the DMs below. Admins can change them from Discord
+# (`unbaninvite message` / `mutenotice message`); these are used until they do.
+UNBAN_DEFAULT = "You've been unbanned from **{server}**. Here's an invite back: {invite}"
+MUTE_DEFAULT = ("You've been muted in {where} {until}. Think this was a mistake? "
+                "DM **Refbot Modmail** and the mods will take a look.")
+
+
+class _Blanks(dict):
+    """For str.format_map: leaves unknown {placeholders} as they are instead of erroring."""
+
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def fill(template: str, **values) -> str:
+    return template.format_map(_Blanks(values))
+
+
+def until_text(when: Optional[datetime]) -> str:
+    """"until <Discord timestamp>" (shown in the reader's own time zone), or open-ended."""
+    if when is None:
+        return "until a mod lifts it"
+    stamp = int(when.timestamp())
+    return f"until <t:{stamp}:f> (<t:{stamp}:R>)"
+
+
 def to_timedelta(text: Optional[str], maximum: Optional[timedelta] = None) -> Optional[timedelta]:
     """"10m", "2h", "1d12h" -> timedelta. A bare number means seconds. None if blank.
     Raises BadArgument if it can't be read."""
@@ -83,9 +109,14 @@ class ModSlash(commands.Cog):
             # DM people an invite back when they're unbanned (e.g. an approved ban
             # appeal), except where Red already sends its own (see on_member_unban).
             unban_invite=True,
+            unban_message=None,  # None = UNBAN_DEFAULT
+            # DM people who get muted or timed out, pointing them to Modmail.
+            mute_notice=True,
+            mute_message=None,  # None = MUTE_DEFAULT
         )
         self._review_notes: dict[int, discord.Message] = {}  # reported message id -> our public note
-        self._reporters: dict[int, set[int]] = {}  # reported message id -> ids of members who reported it
+        self._reporters: dict[int, set[int]] = {}
+        self._mute_notified: dict[tuple[int, int], datetime] = {}  # (guild, user) -> last mute DM  # reported message id -> ids of members who reported it
 
     async def cog_load(self) -> None:
         self.bot.tree.add_command(self.alert_menu)
@@ -668,8 +699,9 @@ class ModSlash(commands.Cog):
         if not invite:
             log.warning("Couldn't make an invite to send %s after their unban (guild %s)", user.id, guild.id)
             return
+        template = await self.config.guild(guild).unban_message() or UNBAN_DEFAULT
         try:
-            await user.send(f"You've been unbanned from **{guild.name}**. Here's an invite back: {invite}")
+            await user.send(fill(template, server=guild.name, invite=invite))
         except discord.HTTPException:
             # Usually: DMs closed, or we no longer share a server with them.
             log.info("Couldn't DM an invite to %s after their unban (guild %s)", user.id, guild.id)
@@ -711,7 +743,7 @@ class ModSlash(commands.Cog):
                     continue
         return None
 
-    @commands.command(name="unbaninvite")
+    @commands.group(name="unbaninvite", invoke_without_command=True)
     @commands.guild_only()
     @commands.admin_or_permissions(manage_guild=True)
     async def unbaninvite(self, ctx: commands.Context, on_or_off: Optional[bool] = None):
@@ -719,6 +751,7 @@ class ModSlash(commands.Cog):
 
         Covers approved ban appeals and Discord's own Unban button. Red's `unban`
         and softban send their own invite (`modset reinvite`), so they're skipped.
+        Change the wording with `unbaninvite message`.
         """
         conf = self.config.guild(ctx.guild)
         if on_or_off is None:
@@ -726,6 +759,110 @@ class ModSlash(commands.Cog):
         await conf.unban_invite.set(on_or_off)
         await ctx.send("Unbanned people will get a DM with an invite back." if on_or_off
                        else "No more invite DMs on unban (Red's own `unban` still follows `modset reinvite`).")
+
+    @unbaninvite.command(name="message")
+    async def unbaninvite_message(self, ctx: commands.Context, *, text: Optional[str] = None):
+        """Show or change the unban DM. Use {server} and {invite}; `reset` for the default."""
+        await self._edit_template(ctx, "unban_message", UNBAN_DEFAULT, text, required=["{invite}"],
+                                  example=dict(server=ctx.guild.name, invite="https://discord.gg/example"))
+
+    # ------------------------------------------------------------ mute notice
+
+    async def _edit_template(self, ctx, key: str, default: str, text: Optional[str],
+                             required: list[str], example: dict) -> None:
+        value = self.config.guild(ctx.guild).get_attr(key)
+        if text is None:
+            current = await value() or default
+            await ctx.send(f"Current message:\n>>> {current}", allowed_mentions=discord.AllowedMentions.none())
+            return
+        if text.strip().lower() == "reset":
+            await value.set(None)
+            text = default
+        else:
+            missing = [r for r in required if r not in text]
+            if missing:
+                await ctx.send(f"The message needs {', '.join(missing)} in it.")
+                return
+            if len(text) > 1500:
+                await ctx.send("That's too long. Keep it under 1500 characters.")
+                return
+            await value.set(text)
+        await ctx.send(f"Saved. It will look like this:\n>>> {fill(text, **example)}",
+                       allowed_mentions=discord.AllowedMentions.none())
+
+    async def _send_mute_notice(self, guild: discord.Guild, user: discord.abc.User,
+                                until: Optional[datetime], channel: Optional[discord.abc.GuildChannel] = None) -> None:
+        """DM someone who just got muted or timed out, once per minute at most (Red's
+        timeout both starts a Discord timeout and logs a mute, so this can fire twice)."""
+        if user.bot or not await self.config.guild(guild).mute_notice():
+            return
+        if await self.bot.cog_disabled_in_guild(self, guild):
+            return
+        key = (guild.id, user.id)
+        now = datetime.now(timezone.utc)
+        last = self._mute_notified.get(key)
+        if last and now - last < timedelta(minutes=1):
+            return
+        self._mute_notified[key] = now
+        where = f"**{guild.name}**" if channel is None else f"#{channel.name} in **{guild.name}**"
+        template = await self.config.guild(guild).mute_message() or MUTE_DEFAULT
+        try:
+            await user.send(fill(template, server=guild.name, where=where, until=until_text(until)))
+        except discord.HTTPException:
+            log.info("Couldn't DM a mute notice to %s (guild %s)", user.id, guild.id)
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        """A Discord timeout just started: from Red's timeout, Defender, or the
+        Timeout button in Discord itself."""
+        now = datetime.now(timezone.utc)
+        started = after.timed_out_until and after.timed_out_until > now
+        was = before.timed_out_until and before.timed_out_until > now
+        if started and not was:
+            await self._send_mute_notice(after.guild, after, after.timed_out_until)
+
+    @commands.Cog.listener()
+    async def on_modlog_case_create(self, case):
+        """Red's mutes (server, channel and voice) log a case; that's our cue."""
+        if case.action_type not in ("smute", "cmute", "vmute") or case.guild is None:
+            return
+        user = case.user if isinstance(case.user, discord.abc.User) else self.bot.get_user(case.user)
+        if user is None:
+            return
+        until = datetime.fromtimestamp(case.until, timezone.utc) if case.until else None
+        channel = case.channel if case.action_type in ("cmute", "vmute") else None
+        await self._send_mute_notice(case.guild, user, until, channel)
+
+    @commands.group(name="mutenotice", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.admin_or_permissions(manage_guild=True)
+    async def mutenotice(self, ctx: commands.Context, on_or_off: Optional[bool] = None):
+        """DM people who get muted or timed out, pointing them to Modmail (on by default).
+
+        Covers Red's mutes and timeouts, Defender's automatic timeouts, and Discord's
+        own Timeout button. Change the wording with `mutenotice message`.
+        """
+        conf = self.config.guild(ctx.guild)
+        if on_or_off is None:
+            on_or_off = not await conf.mute_notice()
+        await conf.mute_notice.set(on_or_off)
+        await ctx.send("Muted and timed out people will get a DM pointing them to Modmail." if on_or_off
+                       else "No more mute notices.")
+
+    @mutenotice.command(name="message")
+    async def mutenotice_message(self, ctx: commands.Context, *, text: Optional[str] = None):
+        """Show or change the mute DM. Use {where} (or {server}) and {until}; `reset` for the default."""
+        later = datetime.now(timezone.utc) + timedelta(hours=1)
+        await self._edit_template(ctx, "mute_message", MUTE_DEFAULT, text, required=[],
+                                  example=dict(server=ctx.guild.name, where=f"**{ctx.guild.name}**",
+                                               until=until_text(later)))
+
+    @mutenotice.command(name="test")
+    async def mutenotice_test(self, ctx: commands.Context):
+        """DM yourself the mute notice as it is now (nobody gets muted)."""
+        self._mute_notified.pop((ctx.guild.id, ctx.author.id), None)
+        await self._send_mute_notice(ctx.guild, ctx.author, datetime.now(timezone.utc) + timedelta(hours=1))
+        await ctx.send("Sent you a DM (if your DMs are open).")
 
     @commands.group(name="reportset")
     @commands.guild_only()

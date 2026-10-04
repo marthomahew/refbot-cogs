@@ -225,7 +225,15 @@ work exactly like the `!` versions.
 them "You've been unbanned from <server>. Here's an invite back: <link>" (the server's
 permanent invite if it has one, else a new one-day invite). Red's `unban`/softban
 send their own invite (`modset reinvite`) and expired tempbans already got one, so
-those are skipped, told apart by the audit log. `!unbaninvite on|off` (admin, on by default).
+those are skipped, told apart by the audit log. `!unbaninvite on|off` (admin, on by default);
+`!unbaninvite message [text|reset]` shows or changes the wording (`{server}`, `{invite}`, which is required).
+
+**Mute notice:** anyone who gets muted or timed out is DM'd "You've been muted in <server>
+until <time>. Think this was a mistake? DM Refbot Modmail and the mods will take a look."
+Covers Red's mutes (server, channel, voice) and timeouts, Defender's automatic timeouts and
+Discord's own Timeout button; one notice per person per minute (Red's timeout fires twice).
+`!mutenotice on|off`, `!mutenotice message [text|reset]` (`{where}`, `{server}`, `{until}`),
+`!mutenotice test` DMs you a preview.
 
 **Report reaction (needs Defender):** react to a message with the report emoji
 (set with `!reportset emoji 🛎️`, a standard or custom server emoji, then
