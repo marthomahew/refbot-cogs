@@ -138,7 +138,7 @@ Reports: `!reportset show`, `!reportset who coaches|members`, `!reportset block 
 Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`
 Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working
-Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`
+Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`, reactions: `!chant react add wild :wild:`, `!chant react remove wild`
 Pick'em: `!pickemset show`, `!pickemset preview`, `!pickemset panel` if the weekly post got deleted, `!pickemset reminder <hours>`, `!pickemset pingrole @role`
 Emotes: reply to a message with `!steal` to add its emotes to the server
 

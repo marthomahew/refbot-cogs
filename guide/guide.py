@@ -165,8 +165,12 @@ class Guide(commands.Cog):
                 values["report_who"], values["report_faq"] = MEMBERS_REPORT, MEMBERS_FAQ
         chants = self.bot.get_cog("Chants")
         if chants is not None:
-            pairs = await chants.config.guild(guild).chants()
-            values["chants"] = "\n".join(f"- **{a}** → {p}" for a, p in sorted(pairs)) or "- *(none set)*"
+            conf = await chants.config.guild(guild).all()
+            values["chants"] = "\n".join(f"- **{a}** → {p}" for a, p in sorted(conf["chants"])) or "- *(none set)*"
+            reactions = conf.get("reactions") or []
+            if reactions:
+                values["chants"] += "\n\nAnd if your message has one of these anywhere in it, the bot reacts:\n" + \
+                    "\n".join(f"- **{p}** → {e}" for p, e in reactions)
         values["report_who"] = values["report_who"].format(report=values["report"])
         return values
 

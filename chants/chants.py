@@ -7,6 +7,10 @@
 - Flood control: at most N replies per minute, per channel (default) or per
   server, adjustable with `[p]chant limit`.
 - The list is editable from Discord with `[p]chant add/remove/list`.
+
+Reaction triggers (`[p]chant react ...`): if a message contains a phrase anywhere
+(any capitalisation, even inside a longer word), the bot reacts with that
+phrase's emoji. No flood limit: reactions don't add messages to the chat.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ class Chants(commands.Cog):
             chants=[[a, p] for a, p in DEFAULT_CHANTS.items()],
             rate_limit=DEFAULT_LIMIT,  # replies per minute...
             rate_scope="channel",  # ...per "channel" or per "server"
+            reactions=[],  # [phrase, emoji] pairs, e.g. ["wild", "<:wild:123>"]
         )
         # ("channel", id) or ("server", id) -> times of recent replies
         self._recent: dict[tuple[str, int], deque] = defaultdict(deque)
@@ -80,12 +85,23 @@ class Chants(commands.Cog):
         recent.append(now)
         return True
 
+    @staticmethod
+    def _reactions_for(content: str, reactions: list[list[str]]) -> list[str]:
+        """Emoji for every reaction phrase found anywhere in the message (each once)."""
+        text = content.casefold()
+        emojis = []
+        for phrase, emoji in reactions:
+            if phrase.casefold() in text and emoji not in emojis:
+                emojis.append(emoji)
+        return emojis
+
     @commands.Cog.listener()
     async def on_message_without_command(self, message: discord.Message):
-        if message.guild is None or message.author.bot or message.webhook_id is not None:
-            return  # bots, and embedfix link reposts (the original already triggered)
-        if not message.content:
+        if message.guild is None or not message.content:
             return
+        if message.author.bot and message.webhook_id is None:
+            return  # other bots
+        reposted = message.webhook_id is not None  # e.g. an embedfix link repost
         if await self.bot.cog_disabled_in_guild(self, message.guild):
             return
         if not await self.bot.ignored_channel_or_guild(message):
@@ -95,6 +111,15 @@ class Chants(commands.Cog):
         conf = await self.config.guild(message.guild).all()
         if not conf["enabled"]:
             return
+        # Reactions also go on reposts: embedfix deletes the original message, so a
+        # reaction there would vanish with it.
+        for emoji in self._reactions_for(message.content, conf["reactions"]):
+            try:
+                await message.add_reaction(emoji)
+            except discord.HTTPException as e:
+                log.debug("Couldn't react %s in #%s: %r", emoji, message.channel, e)
+        if reposted:
+            return  # chant replies: the original already triggered them
         phrases = self._find(message.content, conf["chants"])
         if not phrases or not self._allowed(message, conf["rate_limit"], conf["rate_scope"]):
             return
@@ -117,6 +142,8 @@ class Chants(commands.Cog):
         """Show all chants."""
         conf = await self.config.guild(ctx.guild).all()
         lines = [f"`{a}` → {p}" for a, p in sorted(conf["chants"])] or ["No chants yet."]
+        if conf["reactions"]:
+            lines.append("Reactions: " + ", ".join(f"`{p}` {e}" for p, e in conf["reactions"]))
         status = "on" if conf["enabled"] else "off"
         lines.append(f"-# Chants are {status} · up to {conf['rate_limit']} replies per {conf['rate_scope']} per minute")
         await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
@@ -167,8 +194,60 @@ class Chants(commands.Cog):
     @chant.command(name="toggle")
     @commands.admin_or_permissions(manage_guild=True)
     async def chant_toggle(self, ctx: commands.Context):
-        """Turn chant replies on or off for this server."""
+        """Turn chant replies and reaction triggers on or off for this server."""
         conf = self.config.guild(ctx.guild)
         enabled = not await conf.enabled()
         await conf.enabled.set(enabled)
         await ctx.send(f"Chants are now **{'on' if enabled else 'off'}**.")
+
+    # ------------------------------------------------------------ reaction triggers
+
+    @chant.group(name="react", aliases=["reaction", "reactions"], invoke_without_command=True)
+    async def chant_react(self, ctx: commands.Context):
+        """Auto-reactions: a phrase anywhere in a message gets an emoji reaction."""
+        reactions = await self.config.guild(ctx.guild).reactions()
+        lines = [f"`{p}` → {e}" for p, e in sorted(reactions, key=lambda r: r[0].casefold())] or ["No reaction triggers yet."]
+        lines.append(f"-# Add one with `{ctx.clean_prefix}chant react add wild :wild:`")
+        await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
+
+    @chant_react.command(name="add")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def chant_react_add(self, ctx: commands.Context, *, phrase_and_emoji: str):
+        """React with an emoji whenever a message contains a phrase.
+
+        The emoji goes last: `[p]chant react add wild :wild:` or
+        `[p]chant react add let's go 🔥`. Matching ignores capitalisation and
+        works inside longer words ("wild" also matches "wildin").
+        """
+        phrase, _, emoji = phrase_and_emoji.strip().rpartition(" ")
+        phrase = phrase.strip()
+        if not phrase or not emoji:
+            await ctx.send(f"Put the phrase first and the emoji last, like `{ctx.clean_prefix}chant react add wild :wild:`.")
+            return
+        if not 2 <= len(phrase) <= 50:
+            await ctx.send("The phrase should be 2-50 characters.")
+            return
+        # Try the emoji on the command message: proves it's real and usable by the bot.
+        try:
+            await ctx.message.add_reaction(emoji)
+        except discord.HTTPException:
+            await ctx.send("I can't use that emoji. Use a standard emoji or one from a server I'm in.")
+            return
+        async with self.config.guild(ctx.guild).reactions() as reactions:
+            old = next((e for p, e in reactions if p.casefold() == phrase.casefold()), None)
+            reactions[:] = [[p, e] for p, e in reactions if p.casefold() != phrase.casefold()]
+            reactions.append([phrase, emoji])
+        was = f" (was {old})" if old else ""
+        await ctx.send(f"Messages containing `{phrase}` will get {emoji}{was}.",
+                       allowed_mentions=discord.AllowedMentions.none())
+
+    @chant_react.command(name="remove")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def chant_react_remove(self, ctx: commands.Context, *, phrase: str):
+        """Stop reacting to a phrase."""
+        async with self.config.guild(ctx.guild).reactions() as reactions:
+            before = len(reactions)
+            reactions[:] = [[p, e] for p, e in reactions if p.casefold() != phrase.strip().casefold()]
+            removed = len(reactions) < before
+        await ctx.send(f"Removed `{phrase.strip()}`." if removed else f"There's no reaction for `{phrase.strip()}`.",
+                       allowed_mentions=discord.AllowedMentions.none())

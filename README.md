@@ -305,13 +305,21 @@ FTR → Fuck the Refs, FSP → Fuck Sean Payton. Several in one message get one
 reply. At most 3 replies per channel per minute by default (adjustable). Bots and link
 reposts are ignored.
 
+**Reaction triggers:** if a message contains a phrase anywhere (any capitalisation, even
+inside a longer word, so `wild` also matches "wildin" and "bewildered"), the bot reacts
+with that phrase's emoji. Any number of phrases; no rate limit. Link reposts get the
+reaction too (embedfix deletes the original). Other bots are ignored.
+
 | Command | Who | What it does |
 | --- | --- | --- |
 | `!chant list` | Everyone | Show all chants |
 | `!chant add <acronym> <phrase>` | Admin | Add or change one, e.g. `!chant add FTG Fuck the Giants` |
 | `!chant remove <acronym>` | Admin | Remove one |
 | `!chant limit <n> [channel\|server]` | Admin | Replies per minute, per channel (default) or across the server, 1-30 |
-| `!chant toggle` | Admin | Turn chant replies on/off |
+| `!chant react` | Everyone | List reaction triggers |
+| `!chant react add <phrase> <emoji>` | Admin | React with the emoji when a message contains the phrase, e.g. `!chant react add wild :wild:` (emoji last; tested on your command message) |
+| `!chant react remove <phrase>` | Admin | Remove one |
+| `!chant toggle` | Admin | Turn chant replies and reactions on/off |
 
 ## avatar
 
