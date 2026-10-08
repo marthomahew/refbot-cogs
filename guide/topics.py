@@ -105,7 +105,7 @@ Post your Worldle, Maptap or DailyOrbs share in the daily games channel like you
 
 Every morning, right after Wordle's results, the bot posts yesterday's scores for each game, best first, with buttons to play today's. It goes by the date in your share, so playing late still counts for the right day. Only your first share of each game counts.
 
-How they're ranked: Worldle by fewest guesses, Maptap by highest score, and DailyOrbs by most orbs, then fewest misses. `!dailygames games` shows the full list.""",
+How they're ranked: Worldle by fewest guesses, Maptap by highest score, and DailyOrbs by most orbs, then fewest misses. On Mondays there's also a box with last week's best averages, for anyone who played at least 4 days. `!dailygames games` shows the full list.""",
 
     "fun": """\
 ## 8-ball

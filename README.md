@@ -457,6 +457,9 @@ per day counts, and anything they write around the share is ignored.
   no catch-up after 2 PM Central, and switching it on after 10 AM starts with the next morning):
   one card per game side by side, best first, ties on one line, names shown without pinging,
   and Play buttons to today's games.
+- **Mondays** add a second box: last week's best averages (Monday to Sunday), top 3 per game,
+  for people who played at least 4 of the 7 days, with how many days they played. Worldle
+  misses count as 7. Just stats, no awards.
 - A game nobody played shows "Nobody played yesterday"; after 3 empty days in a row its card
   is left out until someone plays it again. If nobody played anything, nothing is posted.
 - On load and when the channel is set, it reads the last two days of the channel to catch
@@ -473,6 +476,7 @@ per day counts, and anything they write around the share is ignored.
 | `!dailygames channel #channel` | Admin | Set the daily games channel and turn it on |
 | `!dailygames toggle` | Admin | Turn the recap on or off |
 | `!dailygames preview` | Admin | Show this morning's recap here (doesn't count as the post) |
+| `!dailygames weekly` | Admin | Preview the weekly averages box (last full week) |
 | `!dailygames learn [name]` | Admin | Reply to a share to add that game |
 | `!dailygames forget <name>` | Admin | Remove a learned game |
 

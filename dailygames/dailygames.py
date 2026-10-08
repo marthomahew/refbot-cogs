@@ -33,6 +33,8 @@ CENTRAL = ZoneInfo("America/Chicago")
 FALLBACK_HOUR = 10  # post at 10 AM Central if Wordle hasn't posted by then...
 CATCHUP_UNTIL = 14  # ...but not after 2 PM Central (e.g. the bot was down all morning): skip that day
 HIDE_AFTER = 3  # empty days in a row before a game's card is left out
+WEEK_MIN_DAYS = 4  # days someone must have played (of 7) to show in the weekly averages
+WEEK_TOP = 3  # people per game in the weekly averages
 KEEP_DAYS = 35  # days of results kept
 WORDLE_MARKERS = ("yesterday", "results")  # words in the Wordle app's daily post
 BUILT_IN_NAMES = ["Worldle", "Maptap", "DailyOrbs"]
@@ -211,10 +213,12 @@ class DailyGames(commands.Cog):
         async with self.config.guild(guild).empty_days() as empty_days:
             for name in self._game_names(conf):
                 empty_days[name] = empty_days.get(name, 0) + 1 if name in empty else 0
-        if embed is None:
-            return  # nobody played anything yesterday: nothing to post
+        weekly = self.weekly(conf, today) if today.weekday() == 0 else None  # Mondays
+        embeds = [e for e in (embed, weekly) if e is not None]
+        if not embeds:
+            return  # nobody played anything: nothing to post
         try:
-            await channel.send(embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none())
+            await channel.send(embeds=embeds, view=view, allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException as e:
             log.warning("Couldn't post the daily games recap in guild %s: %r", guild.id, e)
 
@@ -245,6 +249,51 @@ class DailyGames(commands.Cog):
         if len(empty) == len(self._game_names(conf)):
             return None, view, empty
         return embed, view, empty
+
+    def weekly(self, conf: dict, today: date) -> Optional[discord.Embed]:
+        """Best averages for last week (Monday to Sunday before `today`), top 3 per game,
+        counting people who played at least WEEK_MIN_DAYS of the 7 days."""
+        start = today - timedelta(days=today.weekday() + 7)  # last week's Monday
+        days = [(start + timedelta(days=i)).isoformat() for i in range(7)]
+        end = start + timedelta(days=6)
+        embed = discord.Embed(title=f"Last week's best averages · {start:%b} {start.day} to {end:%b} {end.day}",
+                              color=COLOR)
+        for name in self._game_names(conf):
+            per_person: dict[str, list[list]] = {}
+            for day in days:
+                for uid, (sort, _, _) in conf["results"].get(day, {}).get(name, {}).items():
+                    per_person.setdefault(uid, []).append(sort)
+            averages = []
+            for uid, sorts in per_person.items():
+                if len(sorts) >= WEEK_MIN_DAYS:
+                    avg = [sum(s[i] for s in sorts) / len(sorts) for i in range(len(sorts[0]))]
+                    averages.append((avg, uid, len(sorts)))
+            if not averages:
+                continue
+            averages.sort()
+            lines = [f"{self._average_text(conf, name, avg)} <@{uid}> ({n} days)"
+                     for avg, uid, n in averages[:WEEK_TOP]]
+            embed.add_field(name=name, value="\n".join(lines)[:1024], inline=True)
+        if not embed.fields:
+            return None
+        embed.set_footer(text=f"Averages for people who played at least {WEEK_MIN_DAYS} of the 7 days")
+        return embed
+
+    @staticmethod
+    def _average_text(conf: dict, name: str, avg: list[float]) -> str:
+        """An average shown like the game's daily scores (sorts are stored so lower is
+        better; flip the "higher is better" ones back)."""
+        if name == "Worldle":
+            return f"{avg[0]:.1f}/6"
+        if name == "Maptap":
+            return f"{-avg[0]:.0f}"
+        if name == "DailyOrbs":
+            return f"{-avg[0]:.1f} 🟣 {avg[1]:.1f} 💔"
+        spec = next((s for s in conf["learned"] if s["name"] == name), {})
+        value = avg[0] if spec.get("better") == "lower" else -avg[0]
+        if spec.get("kind") == "fraction":
+            return f"{value:.1f}/{spec.get('denominator')}"
+        return f"{value:.1f}{'%' if spec.get('kind') == 'percent' else ''}"
 
     @staticmethod
     def _ranking(scores: dict) -> str:
@@ -327,10 +376,24 @@ class DailyGames(commands.Cog):
         """Show this morning's recap here (doesn't count as the day's post)."""
         conf = await self.config.guild(ctx.guild).all()
         embed, view, _ = self.recap(conf, central_today())
-        if embed is None:
+        today = central_today()
+        weekly = self.weekly(conf, today) if today.weekday() == 0 else None
+        embeds = [e for e in (embed, weekly) if e is not None]
+        if not embeds:
             await ctx.send("Nobody has posted any shares for yesterday yet.")
             return
-        await ctx.send("-# Preview", embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none())
+        await ctx.send("-# Preview", embeds=embeds, view=view, allowed_mentions=discord.AllowedMentions.none())
+
+    @dailygames.command(name="weekly")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def dailygames_weekly(self, ctx: commands.Context):
+        """Preview the weekly averages box (last full Monday-Sunday week). It posts on Mondays."""
+        conf = await self.config.guild(ctx.guild).all()
+        weekly = self.weekly(conf, central_today())
+        if weekly is None:
+            await ctx.send(f"Nobody played at least {WEEK_MIN_DAYS} days of any game last week.")
+            return
+        await ctx.send("-# Preview", embed=weekly, allowed_mentions=discord.AllowedMentions.none())
 
     @dailygames.command(name="learn")
     @commands.admin_or_permissions(manage_guild=True)
