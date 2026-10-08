@@ -407,7 +407,8 @@ Game channels that open and close themselves, using ESPN's schedule. A fixed set
 channels lives in a parking category (**gameday placeholder**). Before kickoff the bot
 moves the right one into the live category (**game threads**), renames it for the game and
 syncs it to that category's permissions; after the game it renames it back, parks it and
-syncs again. The same channels are reused every week, so their history stays.
+syncs again. The same channels (your existing ones, set with `gameday use`) are reused
+every week, so their history stays.
 
 - **Vikings game** (any time): two channels, e.g. `mia-at-min` and `delayed-mia-at-min`.
   A Vikings primetime game gets only these two.
@@ -427,7 +428,9 @@ The bot needs **Manage Channels** and **Manage Permissions** in both categories.
 
 | Command | Who | What it does |
 | --- | --- | --- |
-| `!gameday setup` | Admin | Find the two categories and create the parked channels (`vikings-game`, `vikings-delayed`, `redzone`, `primetime-1`, `primetime-2`) if missing |
+| `!gameday setup` | Admin | Find the two categories (and check permissions) |
+| `!gameday use <slot> #channel` | Admin | Use one of your existing channels: `vikings`, `delayed`, `redzone`, or `primetime` (run twice for two). It's renamed back to its current name when parked |
+| `!gameday unuse #channel` | Admin | Stop using a channel |
 | `!gameday toggle` | Admin | Turn it on or off |
 | `!gameday show` | Admin | Settings and this week's schedule (what opens when) |
 | `!gameday times <before> <after> [delayed_after]` | Admin | Hours to open before kickoff / close after the final, e.g. `2 1 6` |

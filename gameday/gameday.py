@@ -27,8 +27,8 @@ from . import schedule
 
 log = logging.getLogger("red.refbot.gameday")
 
-# The channel set: slot -> name it has while parked. ("primetime" has two
-# channels, for Monday doubleheaders.)
+# The kinds of game channel. Admins point each at one of their existing channels
+# with `gameday use` ("primetime" can have several, for Monday doubleheaders).
 SLOTS = [("vikings", "vikings-game"), ("delayed", "vikings-delayed"), ("redzone", "redzone"),
          ("primetime", "primetime-1"), ("primetime", "primetime-2")]
 LIVE_CATEGORY = "game threads"
@@ -209,10 +209,9 @@ class Gameday(commands.Cog):
 
     @gameday.command(name="setup")
     async def gameday_setup(self, ctx: commands.Context):
-        """Find the two categories and create any missing game channels (parked).
+        """Find the "game threads" (live) and "gameday placeholder" (parking) categories.
 
-        Looks for categories named "game threads" (live) and "gameday placeholder"
-        (parking). Safe to run again: it only adds what's missing.
+        Then tell the bot which of your existing channels to use with `gameday use`.
         """
         guild = ctx.guild
         cats = {c.name.casefold(): c for c in guild.categories}
@@ -220,30 +219,59 @@ class Gameday(commands.Cog):
         if live is None or park is None:
             await ctx.send(f"I need categories named **{LIVE_CATEGORY}** and **{PARK_CATEGORY}**.")
             return
-        me = guild.me
         for cat in (live, park):
-            perms = cat.permissions_for(me)
+            perms = cat.permissions_for(guild.me)
             if not (perms.manage_channels and perms.manage_roles):
                 await ctx.send(f"I need **Manage Channels** and **Manage Permissions** in **{cat.name}**.")
                 return
         conf = self.config.guild(guild)
         await conf.live_category.set(live.id)
         await conf.park_category.set(park.id)
-        channels = await conf.channels()
-        have = {(slot, parked) for _, slot, parked in channels}
-        made = []
-        for slot, parked in SLOTS:
-            if (slot, parked) in have:
-                continue
-            existing = discord.utils.get(park.text_channels, name=parked)
-            channel = existing or await park.create_text_channel(parked, reason="Gameday channel")
-            channels.append([channel.id, slot, parked])
-            made.append(channel.mention + ("" if existing else " (new)"))
-        await conf.channels.set(channels)
-        lines = [f"Live: **{live.name}** · Parking: **{park.name}**"]
-        lines.append("Channels: " + (", ".join(made) if made else "all set already"))
-        lines.append(f"Turn it on with `{ctx.clean_prefix}gameday toggle`, and check `{ctx.clean_prefix}gameday show`.")
-        await ctx.send("\n".join(lines))
+        p = ctx.clean_prefix
+        await ctx.send(
+            f"Live: **{live.name}** · Parking: **{park.name}**\n"
+            f"Now tell me which channels to use (each is renamed back to its current name when parked):\n"
+            f"`{p}gameday use vikings #channel` (the Vikings game)\n"
+            f"`{p}gameday use delayed #channel` (the delayed Vikings channel)\n"
+            f"`{p}gameday use redzone #channel`\n"
+            f"`{p}gameday use primetime #channel` (run it twice for two, for Monday doubleheaders)\n"
+            f"Then check `{p}gameday show` and turn it on with `{p}gameday toggle`."
+        )
+
+    @gameday.command(name="use")
+    async def gameday_use(self, ctx: commands.Context, slot: str, channel: discord.TextChannel):
+        """Use an existing channel for a slot: vikings, delayed, redzone or primetime.
+
+        When parked, the channel goes back to the name it has now.
+        """
+        slot = slot.lower()
+        if slot not in {s for s, _ in SLOTS}:
+            await ctx.send("The slot must be `vikings`, `delayed`, `redzone` or `primetime`.")
+            return
+        conf = self.config.guild(ctx.guild)
+        async with self._lock:
+            channels = [c for c in await conf.channels() if c[0] != channel.id]
+            if slot != "primetime":
+                # One channel per slot (primetime can have several): replace the old one.
+                channels = [c for c in channels if c[1] != slot]
+            channels.append([channel.id, slot, channel.name])
+            await conf.channels.set(channels)
+        count = sum(1 for c in channels if c[1] == slot)
+        extra = f" ({count} primetime channel{'s' if count != 1 else ''} now)" if slot == "primetime" else ""
+        await ctx.send(f"{channel.mention} is the **{slot}** channel{extra}. When parked it's called `{channel.name}`.")
+
+    @gameday.command(name="unuse")
+    async def gameday_unuse(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Stop using a channel for game days (it stays where it is)."""
+        conf = self.config.guild(ctx.guild)
+        async with self._lock:
+            channels = await conf.channels()
+            kept = [c for c in channels if c[0] != channel.id]
+            await conf.channels.set(kept)
+            async with conf.assigned() as assigned:
+                assigned.pop(str(channel.id), None)
+        await ctx.send(f"Stopped using {channel.mention}." if len(kept) < len(channels)
+                       else f"{channel.mention} wasn't a game channel.")
 
     @gameday.command(name="toggle")
     async def gameday_toggle(self, ctx: commands.Context):
