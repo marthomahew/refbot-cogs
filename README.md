@@ -308,7 +308,9 @@ reposts are ignored.
 **Reaction triggers:** if a message contains a phrase anywhere (any capitalisation, even
 inside a longer word, so `wild` also matches "wildin" and "bewildered"), the bot reacts
 with that phrase's emoji. Any number of phrases; no rate limit. Link reposts get the
-reaction too (embedfix deletes the original). Other bots are ignored.
+reaction too (embedfix deletes the original). Other bots are ignored. At most 5 reactions per message. If Discord
+refuses a reaction (emoji deleted, no Add Reactions permission), the bot stops trying that
+emoji in that channel for 10 minutes, so failures can't pile up.
 
 | Command | Who | What it does |
 | --- | --- | --- |
