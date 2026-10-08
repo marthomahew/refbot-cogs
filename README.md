@@ -421,6 +421,8 @@ every week, so their history stays.
   afternoon.
 - Opens 2 hours before kickoff, closes 1 hour after ESPN marks the game final; the
   delayed channel stays 6 hours after the final for late watchers (`gameday times`).
+- Channels are tracked by ID, so renaming is fine: rename a live channel mid-game and it keeps
+  the name until it's parked; rename a parked channel and that becomes its parked name.
 - Daytime games that aren't the Vikings and don't share a window (London, Thanksgiving,
   Saturday afternoon) don't get a channel.
 

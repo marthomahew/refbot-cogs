@@ -151,24 +151,35 @@ class Gameday(commands.Cog):
         self.last_error.pop(guild.id, None)  # categories are fine now
         targets = self._targets(conf, schedule.open_now(self._wants(conf), now))
         assigned = dict(conf["assigned"])
-        for channel_id, slot, parked_name in conf["channels"]:
+        channels = [list(c) for c in conf["channels"]]
+        for entry in channels:
+            channel_id, slot, parked_name = entry
             channel = guild.get_channel(channel_id)
             if channel is None:
                 continue
             target = targets.get(channel_id)
             current = assigned.get(str(channel_id))
             if target and target.key != current:
-                if channel.category_id == live.id and channel.name == target.name:
-                    assigned[str(channel_id)] = target.key  # already right (e.g. RedZone's next window)
-                elif await self._edit(channel, live, target.name):
+                if current and channel.category_id == live.id:
+                    # Already open, now for the next window (RedZone): keep whatever
+                    # name it has, including one the mods gave it.
+                    assigned[str(channel_id)] = target.key
+                    continue
+                # Remember its name as it is now, so renaming a parked channel sticks.
+                if channel.category_id != live.id and channel.name != parked_name:
+                    entry[2] = parked_name = channel.name
+                if await self._edit(channel, live, target.name):
                     assigned[str(channel_id)] = target.key
                     log.info("Opened #%s in guild %s", target.name, guild.id)
             elif not target and current:
+                # Back to its parked name, whatever it was renamed to during the game.
                 if await self._edit(channel, park, parked_name):
                     assigned.pop(str(channel_id), None)
                     log.info("Parked #%s in guild %s", parked_name, guild.id)
         if assigned != conf["assigned"]:
             await conf_group.assigned.set(assigned)
+        if channels != conf["channels"]:
+            await conf_group.channels.set(channels)
 
     def _targets(self, conf: dict, wants: list[schedule.Want]) -> dict[int, schedule.Want]:
         """Which channel each open Want goes in. Primetime games share a pool of
