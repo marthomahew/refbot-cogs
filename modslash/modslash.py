@@ -529,10 +529,10 @@ class ModSlash(commands.Cog):
         if len(options) != 3 or len({o.casefold() for o in options}) != 3:
             return None
         picks = random.sample(options, 3)
-        return (f"**FMK:** {', '.join(options)}\n"
-                f"💋 F: **{picks[0]}**\n💍 M: **{picks[1]}**\n🔪 K: **{picks[2]}**")
+        return (f"**Fuck, marry, kill:** {', '.join(options)}\n"
+                f"Fuck: **{picks[0]}**\nMarry: **{picks[1]}**\nKill: **{picks[2]}**")
 
-    @app_commands.command(name="fmk", description="F, marry, kill: the bot decides")
+    @app_commands.command(name="fmk", description="Fuck, marry, kill: the bot decides")
     @app_commands.describe(first="First option", second="Second option", third="Third option")
     @app_commands.guild_only()
     async def fmk(self, interaction: discord.Interaction, first: str, second: str, third: str):
@@ -546,7 +546,7 @@ class ModSlash(commands.Cog):
     @commands.command(name="fmk")
     @commands.guild_only()
     async def fmk_prefix(self, ctx: commands.Context, *, options: str):
-        """F, marry, kill: `[p]fmk Packers, Bears, Lions` (three options, separated by commas)."""
+        """Fuck, marry, kill: `[p]fmk Packers, Bears, Lions` (three options, separated by commas)."""
         text = self._fmk_text(options.split(","))
         if text is None:
             await ctx.send(f"Give me three different options separated by commas, like "
