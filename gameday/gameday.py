@@ -140,6 +140,7 @@ class Gameday(commands.Cog):
             self.last_error[guild.id] = "Categories not set. Run `gameday setup`."
             return
 
+        self.last_error.pop(guild.id, None)  # categories are fine now
         targets = self._targets(conf, schedule.open_now(self._wants(conf), now))
         assigned = dict(conf["assigned"])
         for channel_id, slot, parked_name in conf["channels"]:
@@ -227,7 +228,15 @@ class Gameday(commands.Cog):
         conf = self.config.guild(guild)
         await conf.live_category.set(live.id)
         await conf.park_category.set(park.id)
+        self.last_error.pop(guild.id, None)
+        self._wake.set()
         p = ctx.clean_prefix
+        slots = {slot for _, slot, _ in await conf.channels()}
+        if {"vikings", "delayed", "redzone", "primetime"} <= slots:
+            state = "It's on." if await conf.enabled() else f"Turn it on with `{p}gameday toggle`."
+            await ctx.send(f"Live: **{live.name}** · Parking: **{park.name}**\n"
+                           f"All the game channels are set. {state} `{p}gameday show` has this week's schedule.")
+            return
         await ctx.send(
             f"Live: **{live.name}** · Parking: **{park.name}**\n"
             f"Now tell me which channels to use (each is renamed back to its current name when parked):\n"
