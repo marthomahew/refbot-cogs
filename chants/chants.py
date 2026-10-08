@@ -38,8 +38,6 @@ DEFAULT_LIMIT = 3  # replies per minute (admins can change it with `chant limit`
 MAX_LIMIT = 30
 RATE_WINDOW = 60  # seconds
 ACRONYM_RE = re.compile(r"^[A-Za-z0-9]{2,10}$")
-MAX_REACTIONS = 5  # most reactions the bot adds to one message
-REACT_BACKOFF = 600  # seconds to stop trying an emoji in a channel after Discord refuses it
 
 
 class Chants(commands.Cog):
@@ -59,10 +57,6 @@ class Chants(commands.Cog):
         )
         # ("channel", id) or ("server", id) -> times of recent replies
         self._recent: dict[tuple[str, int], deque] = defaultdict(deque)
-        # (channel id, emoji) -> until when to skip it. When Discord refuses a reaction
-        # (emoji deleted, no Add Reactions permission), retrying on every message would
-        # pile up failed requests, and Discord blocks bots that make too many of those.
-        self._react_blocked: dict[tuple[int, str], float] = {}
 
     async def red_delete_data_for_user(self, **kwargs) -> None:
         # Stores no user data.
@@ -119,18 +113,11 @@ class Chants(commands.Cog):
             return
         # Reactions also go on reposts: embedfix deletes the original message, so a
         # reaction there would vanish with it.
-        now = time.monotonic()
-        for emoji in self._reactions_for(message.content, conf["reactions"])[:MAX_REACTIONS]:
-            key = (message.channel.id, emoji)
-            if self._react_blocked.get(key, 0) > now:
-                continue
+        for emoji in self._reactions_for(message.content, conf["reactions"]):
             try:
                 await message.add_reaction(emoji)
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
-                if isinstance(e, (discord.Forbidden, discord.NotFound)) or getattr(e, "status", 0) == 400:
-                    # Won't fix itself by retrying (missing permission, deleted emoji, ...).
-                    self._react_blocked[key] = now + REACT_BACKOFF
-                    log.info("Pausing reaction %s in #%s for 10 minutes: %r", emoji, message.channel, e)
+            except discord.HTTPException as e:
+                log.debug("Couldn't react %s in #%s: %r", emoji, message.channel, e)
         if reposted:
             return  # chant replies: the original already triggered them
         phrases = self._find(message.content, conf["chants"])
