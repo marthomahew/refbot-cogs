@@ -30,7 +30,7 @@ TOPICS = [
     ("emotes", "Emotes and pfps", "😀", "Saving emotes and full size profile pictures", False),
     ("pickem", "Pick'em", "🏈", "Weekly NFL picks", False),
     ("dailygames", "Daily games", "🧩", "Worldle, Maptap and DailyOrbs scores", False),
-    ("fun", "8-ball", "🎱", "Ask it a question", False),
+    ("fun", "8-ball and FMK", "🎱", "Ask it a question, or make it choose", False),
     ("faq", "FAQ", "❓", "Common questions about the bot", False),
     ("coaches", "Assistant Coaches", "📋", "Alerts and emergency mode", "coaches"),
     ("mods", "Mod stuff", "🛠️", "Mod and admin commands", True),
@@ -109,7 +109,10 @@ How they're ranked: Worldle by fewest guesses, Maptap by highest score, and Dail
 
     "fun": """\
 ## 8-ball
-`!8ball are the Packers frauds?` or `/8ball`. It has to end with a question mark.""",
+`!8ball are the Packers frauds?` or `/8ball`. It has to end with a question mark.
+
+## FMK
+`/fmk` and give it three options, or `!fmk Packers, Bears, Lions`. The bot decides who gets which.""",
 
     "faq": """\
 ## FAQ

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from copy import copy
 from datetime import datetime, timedelta, timezone
@@ -520,6 +521,38 @@ class ModSlash(commands.Cog):
         # what was typed. No mentions from the question can ping anyone.
         question = discord.utils.escape_mentions(question.strip())[:200]
         await self._run(interaction, "8", question=question, public=True, header=f"🎱 **{question}**")
+
+    @staticmethod
+    def _fmk_text(options: list[str]) -> Optional[str]:
+        """Shuffle three options into F / M / K. None if they're not three different ones."""
+        options = [o.strip()[:100] for o in options if o.strip()]
+        if len(options) != 3 or len({o.casefold() for o in options}) != 3:
+            return None
+        picks = random.sample(options, 3)
+        return (f"**FMK:** {', '.join(options)}\n"
+                f"💋 F: **{picks[0]}**\n💍 M: **{picks[1]}**\n🔪 K: **{picks[2]}**")
+
+    @app_commands.command(name="fmk", description="F, marry, kill: the bot decides")
+    @app_commands.describe(first="First option", second="Second option", third="Third option")
+    @app_commands.guild_only()
+    async def fmk(self, interaction: discord.Interaction, first: str, second: str, third: str):
+        text = self._fmk_text([first, second, third])
+        if text is None:
+            await interaction.response.send_message("Give me three different options.", ephemeral=True)
+            return
+        # Public, like /8ball. Mentions in the options show as names but never ping.
+        await interaction.response.send_message(text, allowed_mentions=discord.AllowedMentions.none())
+
+    @commands.command(name="fmk")
+    @commands.guild_only()
+    async def fmk_prefix(self, ctx: commands.Context, *, options: str):
+        """F, marry, kill: `[p]fmk Packers, Bears, Lions` (three options, separated by commas)."""
+        text = self._fmk_text(options.split(","))
+        if text is None:
+            await ctx.send(f"Give me three different options separated by commas, like "
+                           f"`{ctx.clean_prefix}fmk Packers, Bears, Lions`.")
+            return
+        await ctx.send(text, allowed_mentions=discord.AllowedMentions.none())
 
     # ------------------------------------------------------------ Defender
 
