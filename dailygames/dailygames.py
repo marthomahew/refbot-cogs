@@ -30,7 +30,8 @@ from . import games
 log = logging.getLogger("red.refbot.dailygames")
 
 CENTRAL = ZoneInfo("America/Chicago")
-FALLBACK_HOUR = 10  # post at 10 AM Central if Wordle hasn't posted by then
+FALLBACK_HOUR = 10  # post at 10 AM Central if Wordle hasn't posted by then...
+CATCHUP_UNTIL = 14  # ...but not after 2 PM Central (e.g. the bot was down all morning): skip that day
 HIDE_AFTER = 3  # empty days in a row before a game's card is left out
 KEEP_DAYS = 35  # days of results kept
 WORDLE_MARKERS = ("yesterday", "results")  # words in the Wordle app's daily post
@@ -179,7 +180,7 @@ class DailyGames(commands.Cog):
                 await self._backfill(guild, channel)
         while True:
             try:
-                if datetime.now(CENTRAL).hour >= FALLBACK_HOUR:
+                if FALLBACK_HOUR <= datetime.now(CENTRAL).hour < CATCHUP_UNTIL:
                     for guild_id, conf in (await self.config.all_guilds()).items():
                         guild = self.bot.get_guild(guild_id)
                         if guild and conf["enabled"]:
@@ -189,6 +190,12 @@ class DailyGames(commands.Cog):
             except Exception:
                 log.exception("Daily games check failed")
             await asyncio.sleep(300)
+
+    async def _skip_today_if_late(self, guild: discord.Guild) -> None:
+        """Switching the recap on after 10 AM Central: start with tomorrow's, rather
+        than posting a "late" recap straight away."""
+        if datetime.now(CENTRAL).hour >= FALLBACK_HOUR:
+            await self.config.guild(guild).last_posted.set(central_today().isoformat())
 
     async def _post_if_due(self, guild: discord.Guild) -> None:
         async with self._lock:
@@ -292,6 +299,8 @@ class DailyGames(commands.Cog):
         """Set the daily games channel and turn the recap on."""
         conf = self.config.guild(ctx.guild)
         await conf.channel_id.set(channel.id)
+        if not await conf.enabled():
+            await self._skip_today_if_late(ctx.guild)
         await conf.enabled.set(True)
         await ctx.send(f"Watching {channel.mention}. The recap posts there right after Wordle's, "
                        f"or at {FALLBACK_HOUR} AM Central. Reading the last two days of shares now...")
@@ -307,6 +316,8 @@ class DailyGames(commands.Cog):
         if enabled and not await conf.channel_id():
             await ctx.send(f"Set the channel first: `{ctx.clean_prefix}dailygames channel #daily-games`.")
             return
+        if enabled:
+            await self._skip_today_if_late(ctx.guild)
         await conf.enabled.set(enabled)
         await ctx.send(f"Daily games recap is {'on' if enabled else 'off'}.")
 
