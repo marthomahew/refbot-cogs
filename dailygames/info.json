@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "dailygames",
+    "short": "A morning recap of yesterday's daily game scores.",
+    "description": "Reads members' Worldle, Maptap and DailyOrbs shares in the daily games channel and posts a recap of yesterday's scores each morning, right after the Wordle app's post (or at 10 AM Central). Admins can add simple-score games by replying to a share with `[p]dailygames learn`.",
+    "install_msg": "Loaded? `[p]dailygames channel #daily-games`, then `[p]dailygames preview` to see the recap.",
+    "tags": ["games", "wordle", "daily"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog stores the daily game scores members post (who, which game, the score) for about a month, to show yesterday's results. It can be deleted on request."
+}

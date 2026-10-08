@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday
-!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday dailygames
+!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday dailygames
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday
+!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday dailygames
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -442,6 +442,37 @@ Manage Permissions as a rule there. `!gameday perms` checks it.
 | `!gameday test #channel [seconds]` | Admin | Dry run: open it now (move, rename `gameday-test`, sync), report, then park it back after 60 s |
 | `!gameday perms` | Admin | Check Refbot's permissions on the categories and channels, and list what's missing |
 | `!gameday park` | Admin | Put every game channel back in parking now and turn it off |
+
+## dailygames
+
+A morning recap of yesterday's daily game scores in the daily games channel. Members post
+their game shares as usual; the bot reads them and saves each result under the date written
+in the share (so late posts count for the right puzzle). Only someone's first share per game
+per day counts, and anything they write around the share is ignored.
+
+- **Worldle:** fewest guesses (X/6 last). **Maptap:** highest final score. **DailyOrbs:** most
+  orbs, then fewest misses (circles in the share row are orbs, hearts are misses).
+- Posts right after the Wordle app's daily results (or 10 AM Central if Wordle hasn't posted):
+  one card per game side by side, best first, ties on one line, names shown without pinging,
+  and Play buttons to today's games.
+- A game nobody played shows "Nobody played yesterday"; after 3 empty days in a row its card
+  is left out until someone plays it again. If nobody played anything, nothing is posted.
+- On load and when the channel is set, it reads the last two days of the channel to catch
+  shares posted while the bot was offline.
+- **Adding games:** reply to someone's share with `!dailygames learn [name]`. The bot finds the
+  numbers that could be the score (like 4/6, Score: 950, 87%), asks which one and whether higher
+  or lower is better, and spots future shares by the game's website (or first word).
+  Emoji-only results (like DailyOrbs) need adding in code.
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `!dailygames` / `!dailygames help` | Everyone | Show the commands |
+| `!dailygames games` | Everyone | Which games are counted and how they're scored |
+| `!dailygames channel #channel` | Admin | Set the daily games channel and turn it on |
+| `!dailygames toggle` | Admin | Turn the recap on or off |
+| `!dailygames preview` | Admin | Show this morning's recap here (doesn't count as the post) |
+| `!dailygames learn [name]` | Admin | Reply to a share to add that game |
+| `!dailygames forget <name>` | Admin | Remove a learned game |
 
 ## guide
 

@@ -29,6 +29,7 @@ TOPICS = [
     ("awards", "Weekly awards", "👑", "The Monday reaction awards", False),
     ("emotes", "Emotes and pfps", "😀", "Saving emotes and full size profile pictures", False),
     ("pickem", "Pick'em", "🏈", "Weekly NFL picks", False),
+    ("dailygames", "Daily games", "🧩", "Worldle, Maptap and DailyOrbs scores", False),
     ("fun", "8-ball", "🎱", "Ask it a question", False),
     ("faq", "FAQ", "❓", "Common questions about the bot", False),
     ("coaches", "Assistant Coaches", "📋", "Alerts and emergency mode", "coaches"),
@@ -98,6 +99,14 @@ A few hours before each week's first game, last week's players get a reminder to
 
 Results go up right after the last game of the week, and the next week opens for picks at the same time. `/pickem standings` shows the week and the season, and `/pickem picks @someone` shows their picks once games have started.""",
 
+    "dailygames": """\
+## Daily games
+Post your Worldle, Maptap or DailyOrbs share in the daily games channel like you normally would. The bot picks up your score on its own, and you can add whatever you want to say in the same message.
+
+Every morning, right after Wordle's results, the bot posts yesterday's scores for each game, best first, with buttons to play today's. It goes by the date in your share, so playing late still counts for the right day. Only your first share of each game counts.
+
+How they're ranked: Worldle by fewest guesses, Maptap by highest score, and DailyOrbs by most orbs, then fewest misses. `!dailygames games` shows the full list.""",
+
     "fun": """\
 ## 8-ball
 `!8ball are the Packers frauds?` or `/8ball`. It has to end with a question mark.""",
@@ -140,6 +149,7 @@ Reports: `!reportset show`, `!reportset who coaches|members`, `!reportset block 
 Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`
 Game channels: `!gameday show` for this week's schedule, `!gameday park` to put them all away
+Daily games: `!dailygames preview`, and reply to someone's share with `!dailygames learn` to add a new game
 Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working
 Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`, reactions: `!chant react add wild :wild:`, `!chant react remove wild`
 Pick'em: `!pickemset show`, `!pickemset preview`, `!pickemset panel` if the weekly post got deleted, `!pickemset reminder <hours>`, `!pickemset pingrole @role`
