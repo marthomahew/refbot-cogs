@@ -339,6 +339,49 @@ class Gameday(commands.Cog):
             lines.append(f"\nLast problem: {self.last_error[guild.id]}")
         await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
 
+    @gameday.command(name="test")
+    async def gameday_test(self, ctx: commands.Context, channel: discord.TextChannel, seconds: int = 60):
+        """Dry run: open a game channel now, then park it again after `seconds` (default 60).
+
+        Does exactly what a real game does (move to the live category, rename, sync
+        permissions, then back) and reports each step. Discord allows 2 renames per
+        channel per 10 minutes, so test each channel at most once per 10 minutes.
+        """
+        guild = ctx.guild
+        conf = await self.config.guild(guild).all()
+        live = guild.get_channel(conf["live_category"] or 0)
+        park = guild.get_channel(conf["park_category"] or 0)
+        entry = next((c for c in conf["channels"] if c[0] == channel.id), None)
+        if live is None or park is None or entry is None:
+            await ctx.send(f"Run `{ctx.clean_prefix}gameday setup` and add {channel.mention} with `gameday use` first.")
+            return
+        if str(channel.id) in conf["assigned"]:
+            await ctx.send(f"{channel.mention} is open for a real game right now, so I won't touch it.")
+            return
+        seconds = max(10, min(seconds, 600))
+
+        def report(step: str) -> str:
+            fresh = guild.get_channel(channel.id)
+            synced = "yes" if fresh.permissions_synced else "**no**"
+            return (f"{step}: in **{fresh.category.name if fresh.category else 'no category'}**, named "
+                    f"`{fresh.name}`, permissions synced with the category: {synced}")
+
+        async with self._lock:
+            await ctx.send(f"Opening {channel.mention} like a game would...")
+            if not await self._edit(channel, live, "gameday-test"):
+                await ctx.send(f"That failed: {self.last_error.get(guild.id, 'Discord said no')}")
+                return
+            await asyncio.sleep(2)  # let Discord's update reach us
+            await ctx.send(report("Opened") + f"\nParking it again in {seconds} seconds.")
+        await asyncio.sleep(seconds)
+        async with self._lock:
+            if not await self._edit(channel, park, entry[2]):
+                await ctx.send(f"Parking failed: {self.last_error.get(guild.id, 'Discord said no')}. "
+                               f"`{ctx.clean_prefix}gameday park` will retry.")
+                return
+            await asyncio.sleep(2)
+            await ctx.send(report("Parked"))
+
     @gameday.command(name="park")
     async def gameday_park(self, ctx: commands.Context):
         """Put every game channel back in parking now (it reopens on schedule if still on)."""

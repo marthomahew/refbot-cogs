@@ -434,6 +434,7 @@ The bot needs **Manage Channels** and **Manage Permissions** in both categories.
 | `!gameday toggle` | Admin | Turn it on or off |
 | `!gameday show` | Admin | Settings and this week's schedule (what opens when) |
 | `!gameday times <before> <after> [delayed_after]` | Admin | Hours to open before kickoff / close after the final, e.g. `2 1 6` |
+| `!gameday test #channel [seconds]` | Admin | Dry run: open it now (move, rename `gameday-test`, sync), report, then park it back after 60 s |
 | `!gameday park` | Admin | Put every game channel back in parking now and turn it off |
 
 ## guide
