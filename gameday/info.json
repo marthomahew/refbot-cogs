@@ -1,0 +1,13 @@
+{
+    "author": ["marthomahew"],
+    "name": "gameday",
+    "short": "Game channels that open and close themselves.",
+    "description": "Moves reusable game channels from a parking category into a live category before kickoff, renames them for the game and syncs permissions, then puts them back after. Vikings games get a game and a delayed channel, other primetime games one channel, and RedZone opens when several games kick off together. Uses ESPN's public scoreboard.",
+    "install_msg": "Loaded? Make sure you have categories named \"game threads\" and \"gameday placeholder\", then `[p]gameday setup` and `[p]gameday toggle`.",
+    "tags": ["nfl", "football", "channels", "gameday"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 11, 0],
+    "requirements": [],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}

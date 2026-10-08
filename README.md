@@ -9,15 +9,15 @@ In Discord (prefix `!`):
 
 ```
 !repo add refbot-cogs https://github.com/marthomahew/refbot-cogs
-!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem
-!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem
+!cog install refbot-cogs scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday
+!load scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday
 ```
 
 Updating after pushing changes:
 
 ```
 !cog update
-!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem
+!reload scoreboard embedfix emotesteal reactking modslash remindme chants avatar guide pickem gameday
 ```
 
 Slash commands (optional): as bot owner, run `!slash enable scoreboard`, `!slash enable embedfix`, then `!slash sync`.
@@ -400,6 +400,38 @@ Weekly NFL pick'em, straight up (no spread), using ESPN's public scoreboard.
 
 Setup: `!pickemset channel #pickem`, optionally `!pickemset role @Role`, then
 `!pickemset toggle`. Slash: `!slash enable pickem` then `!slash sync`.
+
+## gameday
+
+Game channels that open and close themselves, using ESPN's schedule. A fixed set of
+channels lives in a parking category (**gameday placeholder**). Before kickoff the bot
+moves the right one into the live category (**game threads**), renames it for the game and
+syncs it to that category's permissions; after the game it renames it back, parks it and
+syncs again. The same channels are reused every week, so their history stays.
+
+- **Vikings game** (any time): two channels, e.g. `mia-at-min` and `delayed-mia-at-min`.
+  A Vikings primetime game gets only these two.
+- **Other primetime games** (kickoff 5 PM Central or later: TNF, SNF, MNF, Monday
+  doubleheaders): one channel named for the game, e.g. `pit-at-cle`. Two primetime
+  channels for overlapping games.
+- **RedZone** (`redzone`): open whenever two or more daytime games kick off together
+  (kickoffs within 45 minutes), from before the first kickoff until after the last game
+  of the window ends. Sunday's noon and late windows run together, so it stays open all
+  afternoon.
+- Opens 2 hours before kickoff, closes 1 hour after ESPN marks the game final; the
+  delayed channel stays 6 hours after the final for late watchers (`gameday times`).
+- Daytime games that aren't the Vikings and don't share a window (London, Thanksgiving,
+  Saturday afternoon) don't get a channel.
+
+The bot needs **Manage Channels** and **Manage Permissions** in both categories.
+
+| Command | Who | What it does |
+| --- | --- | --- |
+| `!gameday setup` | Admin | Find the two categories and create the parked channels (`vikings-game`, `vikings-delayed`, `redzone`, `primetime-1`, `primetime-2`) if missing |
+| `!gameday toggle` | Admin | Turn it on or off |
+| `!gameday show` | Admin | Settings and this week's schedule (what opens when) |
+| `!gameday times <before> <after> [delayed_after]` | Admin | Hours to open before kickoff / close after the final, e.g. `2 1 6` |
+| `!gameday park` | Admin | Put every game channel back in parking now and turn it off |
 
 ## guide
 

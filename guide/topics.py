@@ -42,7 +42,9 @@ The scoreboard updates itself. The Vikings game is at the top, and every other g
 
 It updates every minute during games and less often otherwise. Scores come from ESPN, so they can run a little behind the broadcast.
 
-The new week shows up Wednesday at 3pm Central, so last week's results stay up until then.""",
+The new week shows up Wednesday at 3pm Central, so last week's results stay up until then.
+
+On game days, channels open by themselves in Game Threads a couple of hours before kickoff: one for the Vikings game, a delayed one if you're watching later and want to avoid spoilers, one for each primetime game, and RedZone when several games are on at once. They close after the games and come back next week with their history.""",
 
     "links": """\
 ## Link fixer
@@ -137,6 +139,7 @@ Timeout posts in the log channel have an **End timeout** button, and mute cases 
 Reports: `!reportset show`, `!reportset who coaches|members`, `!reportset block @user` for repeat false reporters, `!reportset autohide <n>`
 Awards: `!awards list`, `!awards preview`, `!awards priority`
 Scoreboard: `!scoreboard refresh`
+Game channels: `!gameday show` for this week's schedule, `!gameday park` to put them all away
 Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working
 Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`, reactions: `!chant react add wild :wild:`, `!chant react remove wild`
 Pick'em: `!pickemset show`, `!pickemset preview`, `!pickemset panel` if the weekly post got deleted, `!pickemset reminder <hours>`, `!pickemset pingrole @role`
