@@ -36,6 +36,14 @@ PARK_CATEGORY = "gameday placeholder"
 EDIT_TIMEOUT = 60  # seconds; Discord allows 2 renames per channel per 10 minutes
 
 
+def pretty(perm: str, channel: bool = False) -> str:
+    """A permission's name as Discord's settings show it. (Manage Roles is called
+    Manage Permissions in a channel's or category's settings.)"""
+    if channel and perm == "manage_roles":
+        return "Manage Permissions"
+    return perm.replace("_", " ").title()
+
+
 class Gameday(commands.Cog):
     """Game channels that open and close themselves."""
 
@@ -381,6 +389,53 @@ class Gameday(commands.Cog):
                 return
             await asyncio.sleep(2)
             await ctx.send(report("Parked"))
+
+    @gameday.command(name="perms")
+    async def gameday_perms(self, ctx: commands.Context):
+        """Which permissions Refbot needs to move and sync the game channels.
+
+        Syncing copies every permission rule from the category onto the channel,
+        and Discord only lets a bot set rules for permissions it has itself
+        (unless it has Manage Permissions as a rule on that category/channel).
+        This lists what's missing either way.
+        """
+        guild = ctx.guild
+        conf = await self.config.guild(guild).all()
+        places = [guild.get_channel(i) for i in (conf["live_category"], conf["park_category"])]
+        places += [guild.get_channel(c[0]) for c in conf["channels"]]
+        places = [p for p in places if p is not None]
+        if not places:
+            await ctx.send(f"Run `{ctx.clean_prefix}gameday setup` first.")
+            return
+        me = guild.me
+        # Refbot's own role permissions, as if it didn't have Administrator.
+        role_perms = discord.Permissions.none()
+        for role in me.roles:
+            role_perms.value |= role.permissions.value
+        role_perms.administrator = False
+        basics = discord.Permissions(view_channel=True, manage_channels=True, manage_roles=True)
+        used = discord.Permissions.none()  # every permission any rule in these places allows or denies
+        lines = []
+        for place in places:
+            for target, overwrite in place.overwrites.items():
+                allow, deny = overwrite.pair()
+                used.value |= allow.value | deny.value
+            own_rule = any(place.overwrites_for(r).manage_roles for r in me.roles)
+            # A basic is fine if Refbot's role has it server-wide or a rule here allows it.
+            missing_basics = [pretty(n, channel=True) for n, v in basics if v and not getattr(role_perms, n)
+                              and not any(getattr(place.overwrites_for(r), n) for r in me.roles)]
+            kind = "category" if isinstance(place, discord.CategoryChannel) else "channel"
+            status = "has Manage Permissions as a rule here" if own_rule else "no Manage Permissions rule here"
+            extra = f", missing: {', '.join(missing_basics)}" if missing_basics else ""
+            lines.append(f"- {kind} **{place.name}**: {status}{extra}")
+        needed = [pretty(n) for n, v in used if v and not getattr(role_perms, n)]
+        msg = ["**Refbot's access to the game categories and channels:**", *lines, ""]
+        msg.append("Easiest fix: on both categories, give the Refbot role **View Channel**, **Manage Channels** "
+                   "and **Manage Permissions**. The channels inherit it when they sync.")
+        if needed:
+            msg.append("Without those category rules, Refbot's role would need these server-wide (they're used "
+                       "in the categories' or channels' permission settings): " + ", ".join(sorted(needed)))
+        await ctx.send("\n".join(msg)[:2000], allowed_mentions=discord.AllowedMentions.none())
 
     @gameday.command(name="park")
     async def gameday_park(self, ctx: commands.Context):

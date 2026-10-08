@@ -424,7 +424,10 @@ every week, so their history stays.
 - Daytime games that aren't the Vikings and don't share a window (London, Thanksgiving,
   Saturday afternoon) don't get a channel.
 
-The bot needs **Manage Channels** and **Manage Permissions** in both categories.
+Least-privilege setup: on both categories give the Refbot role **View Channel**, **Manage
+Channels** and **Manage Permissions** (no Administrator needed). Syncing copies the category's
+permission rules, and Discord only lets a bot set rules for permissions it has unless it has
+Manage Permissions as a rule there. `!gameday perms` checks it.
 
 | Command | Who | What it does |
 | --- | --- | --- |
@@ -435,6 +438,7 @@ The bot needs **Manage Channels** and **Manage Permissions** in both categories.
 | `!gameday show` | Admin | Settings and this week's schedule (what opens when) |
 | `!gameday times <before> <after> [delayed_after]` | Admin | Hours to open before kickoff / close after the final, e.g. `2 1 6` |
 | `!gameday test #channel [seconds]` | Admin | Dry run: open it now (move, rename `gameday-test`, sync), report, then park it back after 60 s |
+| `!gameday perms` | Admin | Check Refbot's permissions on the categories and channels, and list what's missing |
 | `!gameday park` | Admin | Put every game channel back in parking now and turn it off |
 
 ## guide
