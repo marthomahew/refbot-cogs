@@ -451,7 +451,8 @@ in the share (so late posts count for the right puzzle). Only someone's first sh
 per day counts, and anything they write around the share is ignored.
 
 - **Worldle:** fewest guesses (X/6 last). **Maptap:** highest final score. **DailyOrbs:** most
-  orbs, then fewest misses (circles in the share row are orbs, hearts are misses).
+  orbs, then fewest misses (circles in the share row are orbs, hearts are misses; shown as
+  `11 🟣 3 💔`).
 - Posts right after the Wordle app's daily results (or 10 AM Central if Wordle hasn't posted):
   one card per game side by side, best first, ties on one line, names shown without pinging,
   and Play buttons to today's games.

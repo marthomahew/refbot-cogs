@@ -121,8 +121,9 @@ def dailyorbs(text: str, posted: date) -> Optional[Result]:
     misses = sum(1 for ch in text if ch in MISSES)
     if orbs == 0 and misses == 0:
         return None  # shared without the result row
-    return Result("DailyOrbs", day, (-orbs, misses),
-                  f"{orbs} orb{'s' if orbs != 1 else ''} · {misses} miss{'es' if misses != 1 else ''}")
+    # Shown with the game's own symbols (a circle is an orb, a heart a miss), so
+    # it stays short enough not to wrap in the recap's narrow column.
+    return Result("DailyOrbs", day, (-orbs, misses), f"{orbs} 🟣 {misses} 💔")
 
 
 BUILT_IN = [worldle, maptap, dailyorbs]
