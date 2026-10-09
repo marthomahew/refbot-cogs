@@ -154,7 +154,7 @@ Scoreboard: `!scoreboard refresh`
 Game channels: `!gameday show` for this week's schedule, `!gameday park` to put them all away
 Daily games: `!dailygames preview`, and reply to someone's share with `!dailygames learn` to add a new game
 Link fixer: `!embedfix list`, `!embedfix map <site> <proxy>` if a proxy stops working
-Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`, reactions: `!chant react add wild :wild:`, `!chant react remove wild`
+Chants: `!chant add FTG Fuck the Giants`, `!chant remove`, `!chant limit <n>`, reactions: `!chant react add wild :wild:`, `!chant react remove wild`, `!chant ignore #channel` to turn both off in one channel
 Pick'em: `!pickemset show`, `!pickemset preview`, `!pickemset panel` if the weekly post got deleted, `!pickemset reminder <hours>`, `!pickemset pingrole @role`
 Emotes: reply to a message with `!steal` to add its emotes to the server
 

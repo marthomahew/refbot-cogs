@@ -11,6 +11,9 @@
 Reaction triggers (`[p]chant react ...`): if a message contains a phrase anywhere
 (any capitalisation, even inside a longer word), the bot reacts with that
 phrase's emoji. No flood limit: reactions don't add messages to the chat.
+
+Ignored channels (`[p]chant ignore #channel`): no chant replies or reactions
+there, threads included. Never named in public output (privacy rule).
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ class Chants(commands.Cog):
             rate_limit=DEFAULT_LIMIT,  # replies per minute...
             rate_scope="channel",  # ...per "channel" or per "server"
             reactions=[],  # [phrase, emoji] pairs, e.g. ["wild", "<:wild:123>"]
+            ignored=[],  # channel IDs with no chants or reactions (their threads too)
         )
         # ("channel", id) or ("server", id) -> times of recent replies
         self._recent: dict[tuple[str, int], deque] = defaultdict(deque)
@@ -111,6 +115,9 @@ class Chants(commands.Cog):
         conf = await self.config.guild(message.guild).all()
         if not conf["enabled"]:
             return
+        channel = message.channel
+        if channel.id in conf["ignored"] or getattr(channel, "parent_id", None) in conf["ignored"]:
+            return
         # Reactions also go on reposts: embedfix deletes the original message, so a
         # reaction there would vanish with it.
         for emoji in self._reactions_for(message.content, conf["reactions"]):
@@ -145,6 +152,9 @@ class Chants(commands.Cog):
         if conf["reactions"]:
             lines.append("Reactions: " + ", ".join(f"`{p}` {e}" for p, e in conf["reactions"]))
         status = "on" if conf["enabled"] else "off"
+        if conf["ignored"]:  # a count only: never name channels (some are private)
+            n = len(conf["ignored"])
+            status += f", off in {n} channel{'s' if n != 1 else ''}"
         lines.append(f"-# Chants are {status} · up to {conf['rate_limit']} replies per {conf['rate_scope']} per minute")
         await ctx.send("\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
 
@@ -199,6 +209,35 @@ class Chants(commands.Cog):
         enabled = not await conf.enabled()
         await conf.enabled.set(enabled)
         await ctx.send(f"Chants are now **{'on' if enabled else 'off'}**.")
+
+    @chant.command(name="ignore")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def chant_ignore(self, ctx: commands.Context, channel: discord.abc.GuildChannel):
+        """No chant replies or reactions in a channel (or its threads)."""
+        async with self.config.guild(ctx.guild).ignored() as ignored:
+            if channel.id not in ignored:
+                ignored.append(channel.id)
+        # Delete the command so the channel's name isn't left sitting in chat.
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+        await ctx.send("Done. No chants or reactions in that channel.", delete_after=10)
+
+    @chant.command(name="unignore")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def chant_unignore(self, ctx: commands.Context, channel: discord.abc.GuildChannel):
+        """Turn chants and reactions back on in an ignored channel."""
+        async with self.config.guild(ctx.guild).ignored() as ignored:
+            found = channel.id in ignored
+            if found:
+                ignored.remove(channel.id)
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+        await ctx.send("Done. Chants and reactions are back on in that channel." if found
+                       else "That channel wasn't ignored.", delete_after=10)
 
     # ------------------------------------------------------------ reaction triggers
 

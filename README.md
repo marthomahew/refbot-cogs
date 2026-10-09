@@ -321,6 +321,8 @@ reaction too (embedfix deletes the original). Other bots are ignored.
 | `!chant react add <phrase> <emoji>` | Admin | React with the emoji when a message contains the phrase, e.g. `!chant react add wild :wild:` (emoji last; tested on your command message) |
 | `!chant react remove <phrase>` | Admin | Remove one |
 | `!chant toggle` | Admin | Turn chant replies and reactions on/off |
+| `!chant ignore <#channel>` | Admin | No chant replies or reactions in that channel (threads included). The command message is deleted so the channel isn't named in chat |
+| `!chant unignore <#channel>` | Admin | Turn them back on there |
 
 ## avatar
 
