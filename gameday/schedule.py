@@ -9,6 +9,9 @@ Rules:
 - RedZone opens whenever two or more daytime games kick off together (Sunday's
   noon and late windows, Week 18, ...), from before the window's first kickoff
   until after its last game ends.
+- A daytime game that kicks off on its own (London/international mornings,
+  Thanksgiving, Saturday games) gets its own channel like a primetime game,
+  from the same pool.
 - A channel opens `before` its kickoff and closes `after` the game is final
   (the delayed channel stays open longer, `delayed_after`, for late watchers).
 """
@@ -122,6 +125,8 @@ def plan(games: list[Game], finals: dict[str, str], team: str, before: timedelta
          after: timedelta, delayed_after: timedelta) -> list[Want]:
     """Every channel this week's games call for, open or not."""
     wants = []
+    windows = redzone_windows(games, team)
+    in_redzone = {g.id for window in windows for g in window}
     for game in games:
         if not game.playing:
             continue
@@ -131,10 +136,12 @@ def plan(games: list[Game], finals: dict[str, str], team: str, before: timedelta
                               _closes([game], finals, after), f"{game.name} ({team} game)"))
             wants.append(Want("delayed", f"delayed-{game.name}", f"delayed:{game.id}", opens,
                               _closes([game], finals, delayed_after), f"delayed-{game.name}"))
-        elif game.primetime:
+        elif game.primetime or game.id not in in_redzone:
+            # Primetime, or a daytime game on its own (London, Thanksgiving, ...).
+            kind = "primetime" if game.primetime else "standalone"
             wants.append(Want("primetime", game.name, f"prime:{game.id}", opens,
-                              _closes([game], finals, after), f"{game.name} (primetime)"))
-    for window in redzone_windows(games, team):
+                              _closes([game], finals, after), f"{game.name} ({kind})"))
+    for window in windows:
         wants.append(Want("redzone", "redzone", f"redzone:{window[0].id}", window[0].kickoff - before,
                           _closes(window, finals, after), f"redzone ({len(window)} games)"))
     return sorted(wants, key=lambda w: w.opens)

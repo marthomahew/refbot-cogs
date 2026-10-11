@@ -426,8 +426,9 @@ every week, so their history stays.
   delayed channel stays 6 hours after the final for late watchers (`gameday times`).
 - Channels are tracked by ID, so renaming is fine: rename a live channel mid-game and it keeps
   the name until it's parked; rename a parked channel and that becomes its parked name.
-- Daytime games that aren't the Vikings and don't share a window (London, Thanksgiving,
-  Saturday afternoon) don't get a channel.
+- **Daytime games on their own** (London/international mornings, Thanksgiving, Saturday
+  games): not the Vikings and not sharing a RedZone window, so they get their own channel
+  from the primetime pool, just like a primetime game.
 
 Least-privilege setup: on both categories give the Refbot role **View Channel**, **Manage
 Channels** and **Manage Permissions** (no Administrator needed). Syncing copies the category's

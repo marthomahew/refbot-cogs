@@ -45,7 +45,7 @@ It updates every minute during games and less often otherwise. Scores come from 
 
 The new week shows up Wednesday at 3pm Central, so last week's results stay up until then.
 
-On game days, channels open by themselves in Game Threads a couple of hours before kickoff: one for the Vikings game, a delayed one if you're watching later and want to avoid spoilers, one for each primetime game, and RedZone when several games are on at once. They close after the games and come back next week with their history.""",
+On game days, channels open by themselves in Game Threads a couple of hours before kickoff: one for the Vikings game, a delayed one if you're watching later and want to avoid spoilers, one for each primetime game or game on its own (like the London games), and RedZone when several games are on at once. They close after the games and come back next week with their history.""",
 
     "links": """\
 ## Link fixer
