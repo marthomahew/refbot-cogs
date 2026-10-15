@@ -4,7 +4,7 @@ Each game turns a message into a Result (or None if the message isn't that
 game's share). Results always use the date written in the share itself, so a
 late post still counts for the right day's puzzle.
 
-Built in: Worldle, Maptap and DailyOrbs. Admins can add simple-score games from
+Built in: Worldle, Maptap, DailyOrbs and Two-Minute Drill. Admins can add simple-score games from
 Discord (`dailygames learn`); those are LearnedGame.
 """
 
@@ -126,13 +126,41 @@ def dailyorbs(text: str, posted: date) -> Optional[Result]:
     return Result("DailyOrbs", day, (-orbs, misses), f"{orbs} 🟣 {misses} 💔")
 
 
-BUILT_IN = [worldle, maptap, dailyorbs]
+DRILL_RE = re.compile(r"Two-Minute Drill\s*#(\d+)", re.IGNORECASE)
+DRILL_SCORE_RE = re.compile(r"Better than\s+(\d{1,3})%", re.IGNORECASE)
+DRILL_LAUNCH = date(2026, 10, 12)  # puzzle #1 (from the game's own data, game.json "launch")
+# Against the real coach, best first. Some days have no real coach to compare with;
+# then nobody's share has the line, so its place in the order doesn't matter.
+DRILL_COACH = [("beat the real coach", 0, "beat"), ("matched the real coach", 1, "matched"),
+               ("lost to the real coach", 2, "lost")]
+
+
+def drill(text: str, posted: date) -> Optional[Result]:
+    """Two-Minute Drill #4 / Better than 85% of NFL play-callers / Beat the real coach /
+    ... nfl2mindrill.com. Highest % wins; ties go to beat, then matched, then lost to the
+    real coach. The share has no date, but #1 was the launch day, so #N gives it."""
+    m, score = DRILL_RE.search(text), DRILL_SCORE_RE.search(text)
+    if not m or not score or "nfl2mindrill" not in text.lower():
+        return None
+    number = int(m[1])
+    if number < 1:
+        return None
+    day = DRILL_LAUNCH + timedelta(days=number - 1)
+    pct = int(score[1])
+    lowered = text.lower()
+    rank, word = next(((r, w) for phrase, r, w in DRILL_COACH if phrase in lowered), (1, None))
+    shown = f"{pct}% · {word}" if word else f"{pct}%"
+    return Result("Two-Minute Drill", day, (-pct, rank), shown, title=f"Two-Minute Drill #{number}")
+
+
+BUILT_IN = [worldle, maptap, dailyorbs, drill]
 
 # Where the "Play" buttons go. DailyOrbs uses dated pages.
 PLAY_LINKS = {
     "Worldle": lambda today: "https://worldle.teuteuf.fr/",
     "Maptap": lambda today: "https://www.maptap.gg/",
     "DailyOrbs": lambda today: f"https://dailyorbs.com/{today.isoformat()}",
+    "Two-Minute Drill": lambda today: "https://nfl2mindrill.com/",
 }
 
 

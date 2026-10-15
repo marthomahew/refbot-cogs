@@ -29,7 +29,7 @@ TOPICS = [
     ("awards", "Weekly awards", "👑", "The Monday reaction awards", False),
     ("emotes", "Emotes and pfps", "😀", "Saving emotes and full size profile pictures", False),
     ("pickem", "Pick'em", "🏈", "Weekly NFL picks", False),
-    ("dailygames", "Daily games", "🧩", "Worldle, Maptap and DailyOrbs scores", False),
+    ("dailygames", "Daily games", "🧩", "Worldle, Maptap, DailyOrbs and Two-Minute Drill scores", False),
     ("fun", "8-ball and FMK", "🎱", "Ask it a question, or make it choose", False),
     ("faq", "FAQ", "❓", "Common questions about the bot", False),
     ("coaches", "Assistant Coaches", "📋", "Alerts and emergency mode", "coaches"),
@@ -101,11 +101,11 @@ Results go up right after the last game of the week, and the next week opens for
 
     "dailygames": """\
 ## Daily games
-Post your Worldle, Maptap or DailyOrbs share in the daily games channel like you normally would. The bot picks up your score on its own, and you can add whatever you want to say in the same message.
+Post your Worldle, Maptap, DailyOrbs or Two-Minute Drill share in the daily games channel like you normally would. The bot picks up your score on its own, and you can add whatever you want to say in the same message.
 
 Every morning, right after Wordle's results, the bot posts yesterday's scores for each game, best first, with buttons to play today's. It goes by the date in your share, so playing late still counts for the right day. Only your first share of each game counts.
 
-How they're ranked: Worldle by fewest guesses, Maptap by highest score, and DailyOrbs by most orbs, then fewest misses. On Mondays there's also a box with last week's best averages, for anyone who played at least 4 days. `!dailygames games` shows the full list.""",
+How they're ranked: Worldle by fewest guesses, Maptap by highest score, DailyOrbs by most orbs, then fewest misses, and Two-Minute Drill by highest %, with ties going to whoever beat the real coach, then matched, then lost. On Mondays there's also a box with last week's best averages, for anyone who played at least 4 days. `!dailygames games` shows the full list.""",
 
     "fun": """\
 ## 8-ball

@@ -37,7 +37,7 @@ WEEK_MIN_DAYS = 4  # days someone must have played (of 7) to show in the weekly 
 WEEK_TOP = 3  # people per game in the weekly averages
 KEEP_DAYS = 35  # days of results kept
 WORDLE_MARKERS = ("yesterday", "results")  # words in the Wordle app's daily post
-BUILT_IN_NAMES = ["Worldle", "Maptap", "DailyOrbs"]
+BUILT_IN_NAMES = ["Worldle", "Maptap", "DailyOrbs", "Two-Minute Drill"]
 COLOR = discord.Color(0x4F2683)
 
 
@@ -289,6 +289,8 @@ class DailyGames(commands.Cog):
             return f"{-avg[0]:.0f}"
         if name == "DailyOrbs":
             return f"{-avg[0]:.1f} 🟣 {avg[1]:.1f} 💔"
+        if name == "Two-Minute Drill":
+            return f"{-avg[0]:.0f}%"
         spec = next((s for s in conf["learned"] if s["name"] == name), {})
         value = avg[0] if spec.get("better") == "lower" else -avg[0]
         if spec.get("kind") == "fraction":
@@ -336,7 +338,8 @@ class DailyGames(commands.Cog):
         """Which games the recap counts."""
         learned = await self.config.guild(ctx.guild).learned()
         lines = ["**Worldle**: fewest guesses (X/6 last)", "**Maptap**: highest final score",
-                 "**DailyOrbs**: most orbs, then fewest misses"]
+                 "**DailyOrbs**: most orbs, then fewest misses",
+                 "**Two-Minute Drill**: highest %, then beat, matched or lost to the real coach"]
         lines += [f"**{s['name']}**: {'lowest' if s['better'] == 'lower' else 'highest'} score "
                   f"(shares mentioning `{s['match']}`)" for s in learned]
         await ctx.send("Post your share in the daily games channel and it's counted:\n" + "\n".join(lines),
